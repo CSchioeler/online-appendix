@@ -1,0 +1,265 @@
+---
+title: "Explore Denly Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Clean up duplicates from border cells in xsub
+
+```{r}
+# Import xSub data
+library(readr)
+library(here)
+library(dplyr)
+xsub <- read_csv(here("Data", "xSub Conflict Data", "xsub_1k1d_prio_year_undirected.csv"))
+```
+
+
+```{r}
+# Drop CLEA_CST and CLEA_CST_N column
+# Prepare the dataset by identifying duplicates
+library(tidyverse)
+xsub <- xsub |> 
+  rename(gid = PRIO_GID, year = YEAR) |> 
+  filter(year >= 1994 & year <= 2014) |>
+  select(-c(CLEA_CST, CLEA_CST_N, TID, YRMO, WID, DATE)) |> 
+  group_by(gid, year) |>
+  mutate(is_border_gid = n() > 1) |>
+  ungroup()
+
+
+# Convert numeric IDs and other relevant fields to character
+xsub <- xsub %>%
+  mutate(across(c(ID_0, ID_1, ID_2, PRIO_XCOORD, PRIO_YCOORD, PRIO_COL, PRIO_ROW), as.character))
+
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+# Check for duplicates
+duplicates <- xsub %>%
+  group_by(gid, year) %>%
+  filter(n() > 1) |> 
+  arrange(gid, year)
+
+```
+
+
+
+```{r}
+# Aggregate Conflict values by summing
+duplicates_clean <- duplicates %>%
+  group_by(gid, year) %>%
+  summarise(
+    is_border_gid = any(is_border_gid),  # Checking if it's a border gid
+    SOURCE = first(SOURCE),  # Taking the first occurrence of SOURCE as an example
+
+    # Summing specified variables
+    INITIATOR_SIDEA = sum(INITIATOR_SIDEA, na.rm = TRUE),
+    INITIATOR_SIDEB = sum(INITIATOR_SIDEB, na.rm = TRUE),
+    INITIATOR_SIDEC = sum(INITIATOR_SIDEC, na.rm = TRUE),
+    INITIATOR_SIDED = sum(INITIATOR_SIDED, na.rm = TRUE),
+    TARGET_SIDEA = sum(TARGET_SIDEA, na.rm = TRUE),
+    TARGET_SIDEB = sum(TARGET_SIDEB, na.rm = TRUE),
+    TARGET_SIDEC = sum(TARGET_SIDEC, na.rm = TRUE),
+    TARGET_SIDED = sum(TARGET_SIDED, na.rm = TRUE),
+    DYAD_A_A = sum(DYAD_A_A, na.rm = TRUE),
+    DYAD_A_B = sum(DYAD_A_B, na.rm = TRUE),
+    DYAD_A_C = sum(DYAD_A_C, na.rm = TRUE),
+    DYAD_A_D = sum(DYAD_A_D, na.rm = TRUE),
+    DYAD_B_A = sum(DYAD_B_A, na.rm = TRUE),
+    DYAD_B_B = sum(DYAD_B_B, na.rm = TRUE),
+    DYAD_B_C = sum(DYAD_B_C, na.rm = TRUE),
+    DYAD_B_D = sum(DYAD_B_D, na.rm = TRUE),
+    DYAD_C_A = sum(DYAD_C_A, na.rm = TRUE),
+    DYAD_C_B = sum(DYAD_C_B, na.rm = TRUE),
+    DYAD_C_C = sum(DYAD_C_C, na.rm = TRUE),
+    DYAD_C_D = sum(DYAD_C_D, na.rm = TRUE),
+    DYAD_D_A = sum(DYAD_D_A, na.rm = TRUE),
+    DYAD_D_B = sum(DYAD_D_B, na.rm = TRUE),
+    DYAD_D_C = sum(DYAD_D_C, na.rm = TRUE),
+    DYAD_D_D = sum(DYAD_D_D, na.rm = TRUE),
+    ACTION_ANY = sum(ACTION_ANY, na.rm = TRUE),
+    ACTION_IND = sum(ACTION_IND, na.rm = TRUE),
+    ACTION_DIR = sum(ACTION_DIR, na.rm = TRUE),
+    ACTION_PRT = sum(ACTION_PRT, na.rm = TRUE),
+    SIDEA_ANY = sum(SIDEA_ANY, na.rm = TRUE),
+    SIDEA_IND = sum(SIDEA_IND, na.rm = TRUE),
+    SIDEA_DIR = sum(SIDEA_DIR, na.rm = TRUE),
+    SIDEA_PRT = sum(SIDEA_PRT, na.rm = TRUE),
+    SIDEB_ANY = sum(SIDEB_ANY, na.rm = TRUE),
+    SIDEB_IND = sum(SIDEB_IND, na.rm = TRUE),
+    SIDEB_DIR = sum(SIDEB_DIR, na.rm = TRUE),
+    SIDEB_PRT = sum(SIDEB_PRT, na.rm = TRUE),
+    SIDEC_ANY = sum(SIDEC_ANY, na.rm = TRUE),
+    SIDEC_IND = sum(SIDEC_IND, na.rm = TRUE),
+    SIDEC_DIR = sum(SIDEC_DIR, na.rm = TRUE),
+    SIDEC_PRT = sum(SIDEC_PRT, na.rm = TRUE),
+    SIDED_ANY = sum(SIDED_ANY, na.rm = TRUE),
+    SIDED_IND = sum(SIDED_IND, na.rm = TRUE),
+    SIDED_DIR = sum(SIDED_DIR, na.rm = TRUE),
+    SIDED_PRT = sum(SIDED_PRT, na.rm = TRUE),
+    
+    # Conditional summing based on the uniqueness of related text entries
+    GREG_NGROUPS = if(n_distinct(GREG_GROUPS) == 1) first(GREG_NGROUPS) else sum(GREG_NGROUPS, na.rm = TRUE),
+    WLMS_NLANG = if(n_distinct(WLMS_LANGS) == 1) first(WLMS_NLANG) else sum(WLMS_NLANG, na.rm = TRUE),
+    NBUILTUP = if(n_distinct(BUILTUP) == 1) first(NBUILTUP) else sum(NBUILTUP, na.rm = TRUE),
+    NPETRO = if(n_distinct(PETRO) == 1) first(NPETRO) else sum(NPETRO, na.rm = TRUE),
+
+    # Regular summing for ROAD_XING and ROAD_LENGTH as they are not conditional on other fields
+    ROAD_DENSITY = 0,  # Initialize to 0 to indicate uncalculated
+    ROAD_XING = sum(ROAD_XING, na.rm = TRUE),
+    ROAD_LENGTH = sum(ROAD_LENGTH, na.rm = TRUE),
+
+     # Concatenation if entries are not identical
+    ID_0 = if (n_distinct(ID_0) == 1) first(ID_0) else paste(unique(ID_0), collapse = "_"),
+    ISO = if (n_distinct(ISO) == 1) first(ISO) else paste(unique(ISO), collapse = "_"),
+    ID_1 = if (n_distinct(ID_1) == 1) first(ID_1) else paste(unique(ID_1), collapse = "_"),
+    NAME_0 = if (n_distinct(NAME_0) == 1) first(NAME_0) else paste(unique(NAME_0), collapse = "_"),
+    NAME_1 = if (n_distinct(NAME_1) == 1) first(NAME_1) else paste(unique(NAME_1), collapse = "_"),
+    ID_2 = if (n_distinct(ID_2) == 1) first(ID_2) else paste(unique(ID_2), collapse = "_"),
+    NAME_2 = if (n_distinct(NAME_2) == 1) first(NAME_2) else paste(unique(NAME_2), collapse = "_"),
+    PRIO_XCOORD = if (n_distinct(PRIO_XCOORD) == 1) first(PRIO_XCOORD) else paste(unique(PRIO_XCOORD), collapse = "_"),
+    PRIO_YCOORD = if (n_distinct(PRIO_YCOORD) == 1) first(PRIO_YCOORD) else paste(unique(PRIO_YCOORD), collapse = "_"),
+    PRIO_COL = if (n_distinct(PRIO_COL) == 1) first(PRIO_COL) else paste(unique(PRIO_COL), collapse = "_"),
+    PRIO_ROW = if (n_distinct(PRIO_ROW) == 1) first(PRIO_ROW) else paste(unique(PRIO_ROW), collapse = "_"),
+    GREG_GROUPS = if (n_distinct(GREG_GROUPS) == 1) first(GREG_GROUPS) else paste(unique(GREG_GROUPS), collapse = "_"),
+    WLMS_LANGS = if (n_distinct(WLMS_LANGS) == 1) first(WLMS_LANGS) else paste(unique(WLMS_LANGS), collapse = "_"),
+    BUILTUP = if (n_distinct(BUILTUP) == 1) first(BUILTUP) else paste(unique(BUILTUP), collapse = "_"),
+    PETRO = if (n_distinct(PETRO) == 1) first(PETRO) else paste(unique(PETRO), collapse = "_"),
+
+     # Implement conditional checks and mean calculations for the complete list of variables
+    POP_1990 = if (all(is.na(POP_1990))) NA_real_ else mean(POP_1990, na.rm = TRUE),
+    POP_1995 = if (all(is.na(POP_1995))) NA_real_ else mean(POP_1995, na.rm = TRUE),
+    POP_2000 = if (all(is.na(POP_2000))) NA_real_ else mean(POP_2000, na.rm = TRUE),
+    ELEV_MEAN = if (all(is.na(ELEV_MEAN))) NA_real_ else mean(ELEV_MEAN, na.rm = TRUE),
+    ELEV_SD = if (all(is.na(ELEV_SD))) NA_real_ else mean(ELEV_SD, na.rm = TRUE),
+    ELEV_MAX = if (all(is.na(ELEV_MAX))) NA_real_ else mean(ELEV_MAX, na.rm = TRUE),
+    OPEN_TERRAIN = if (all(is.na(OPEN_TERRAIN))) NA_real_ else mean(OPEN_TERRAIN, na.rm = TRUE),
+    FOREST = if (all(is.na(FOREST))) NA_real_ else mean(FOREST, na.rm = TRUE),
+    WETLAND = if (all(is.na(WETLAND))) NA_real_ else mean(WETLAND, na.rm = TRUE),
+    FARMLAND = if (all(is.na(FARMLAND))) NA_real_ else mean(FARMLAND, na.rm = TRUE),
+    AREA_KM2 = if (all(is.na(AREA_KM2))) NA_real_ else mean(AREA_KM2, na.rm = TRUE),
+    TEMP = if (all(is.na(TEMP))) NA_real_ else mean(TEMP, na.rm = TRUE),
+    RAIN = if (all(is.na(RAIN))) NA_real_ else mean(RAIN, na.rm = TRUE),
+    PG_GCP_MER = if (all(is.na(PG_GCP_MER))) NA_real_ else mean(PG_GCP_MER, na.rm = TRUE),
+    PG_GCP_PPP = if (all(is.na(PG_GCP_PPP))) NA_real_ else mean(PG_GCP_PPP, na.rm = TRUE),
+    PG_GCP_QUAL = if (all(is.na(PG_GCP_QUAL))) NA_real_ else mean(PG_GCP_QUAL, na.rm = TRUE),
+    PG_NLIGHTS_CALIB_MEAN = if (all(is.na(PG_NLIGHTS_CALIB_MEAN))) NA_real_ else mean(PG_NLIGHTS_CALIB_MEAN, na.rm = TRUE),
+    PG_POP_HYD_SUM = if (all(is.na(PG_POP_HYD_SUM))) NA_real_ else mean(PG_POP_HYD_SUM, na.rm = TRUE),
+    PG_GCP_MER_LI = if (all(is.na(PG_GCP_MER_LI))) NA_real_ else mean(PG_GCP_MER_LI, na.rm = TRUE),
+    PG_GCP_PPP_LI = if (all(is.na(PG_GCP_PPP_LI))) NA_real_ else mean(PG_GCP_PPP_LI, na.rm = TRUE),
+    PG_GCP_QUAL_LI = if (all(is.na(PG_GCP_QUAL_LI))) NA_real_ else mean(PG_GCP_QUAL_LI, na.rm = TRUE),
+    PG_NLIGHTS_CALIB_MEAN_LI = if (all(is.na(PG_NLIGHTS_CALIB_MEAN_LI))) NA_real_ else mean(PG_NLIGHTS_CALIB_MEAN_LI, na.rm = TRUE),
+    PG_POP_HYD_SUM_LI = if (all(is.na(PG_POP_HYD_SUM_LI))) NA_real_ else mean(PG_POP_HYD_SUM_LI, na.rm = TRUE),
+    PG_GCP_MER_MR = if (all(is.na(PG_GCP_MER_MR))) NA_real_ else mean(PG_GCP_MER_MR, na.rm = TRUE),
+    PG_GCP_PPP_MR = if (all(is.na(PG_GCP_PPP_MR))) NA_real_ else mean(PG_GCP_PPP_MR, na.rm = TRUE),
+    PG_GCP_QUAL_MR = if (all(is.na(PG_GCP_QUAL_MR))) NA_real_ else mean(PG_GCP_QUAL_MR, na.rm = TRUE),
+    PG_NLIGHTS_CALIB_MEAN_MR = if (all(is.na(PG_NLIGHTS_CALIB_MEAN_MR))) NA_real_ else mean(PG_NLIGHTS_CALIB_MEAN_MR, na.rm = TRUE),
+    PG_POP_HYD_SUM_MR = if (all(is.na(PG_POP_HYD_SUM_MR))) NA_real_ else mean(PG_POP_HYD_SUM_MR, na.rm = TRUE),
+    
+    # Minimum DIST2PROVCAP across all rows for each gid-year combination
+    DIST2PROVCAP = min(DIST2PROVCAP, na.rm = TRUE),
+
+    .groups = 'drop'
+  )
+# Recalculate ROAD_DENSITY for rows where is_border_gid is TRUE
+duplicates_clean <- duplicates_clean %>%
+  mutate(
+    ROAD_DENSITY = if_else(is_border_gid, ROAD_LENGTH / AREA_KM2, ROAD_DENSITY)
+  )
+
+```
+
+```{r}
+# Check for duplicates again
+# Check for duplicates in the final dataset based on gid and year
+duplicate_check <- duplicates_clean %>%
+  group_by(gid, year) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Print out any gid-year combinations that still have duplicates
+if (nrow(duplicate_check) == 0) {
+  print("No duplicates found based on gid-year combinations.")
+} else {
+  print("Duplicates found:")
+  print(duplicate_check)
+}
+```
+
+```{r}
+library(dplyr)
+
+# Filter out the rows from xsub that have duplicates
+xsub_filtered <- xsub %>%
+  anti_join(duplicates, by = c("gid", "year"))
+
+# Append the aggregated duplicate rows back to the filtered original dataset
+final_dataset <- xsub_filtered %>%
+  bind_rows(duplicates_clean)
+
+# Optionally, if you want to recheck that there are no more duplicates in terms of gid-year
+final_dataset_check <- final_dataset %>%
+  group_by(gid, year) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  filter(n > 1)
+
+# Print the check to see if there are any remaining duplicates
+print(final_dataset_check)
+
+# Print the first few rows of the final dataset to inspect the results
+print(head(final_dataset))
+```
+
+
+
+```{r}
+duplicate_check <- final_dataset %>%
+  group_by(gid, year) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Print out any gid-year combinations that still have duplicates
+if (nrow(duplicate_check) == 0) {
+  print("No duplicates found based on gid-year combinations.")
+} else {
+  print("Duplicates found:")
+  print(duplicate_check)
+}
+
+```
+
+There were up to 4 duplicates for some prio-year combinations.
+
+
+```{r}
+final_dataset <- final_dataset |> 
+  rename_with(~ paste0(., "_xS")) |> 
+  rename(gid = gid_xS, year = year_xS)
+
+print(names(final_dataset))
+```
+
+```{r}
+# Save as dta file
+library(haven)
+write_dta(final_dataset, "xsub_1k1d_prio_year_undirected.dta")
+```
+
+```{r}
+# Merge the two based on year and gid
+merged_data <- merge(xsub, denly, by = c("gid", "year"), all.y = TRUE)
+
+# Check the number of rows and columns
+dim(merged_data)
+```
+

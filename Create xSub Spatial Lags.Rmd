@@ -1,0 +1,109 @@
+---
+title: "Create xSub Spatial Lags"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(spdep)
+library(sf)
+library(here)
+library(tidyverse)
+```
+
+
+```{r}
+# If it's a CSV or similar:
+conflict_data <- read_dta(here("Data", "matched_grd_xsub.dta"))
+```
+
+```{r}
+# Import shp file from PRIO-GRID website
+priogrid_shapefile <- st_read(here("Data", "PRIO Shape Files", "priogrid_cell.shp"))
+```
+
+```{r}
+# Merge and explicitly convert to an sf object, specifying geometry
+final_data <- left_join(conflict_data, priogrid_shapefile, by = "gid") %>%
+  st_as_sf()
+```
+
+
+# Create Spatial Weights Matrix
+
+```{r}
+# Check class to ensure it's now an sf object
+print(class(final_data))
+
+```
+
+```{r}
+# Remove specific data objects
+rm(conflict_data, priogrid_shapefile)
+
+# Clear the R environment of any residual objects not needed
+gc()  # Garbage collection to free up memory
+
+# Create a unique spatial dataset by filtering the merged data
+# This step will maintain the geometry as we are working directly with the 'sf' object
+unique_spatial_data <- distinct(final_data, gid, .keep_all = TRUE)
+
+if (!inherits(unique_spatial_data, "sf")) {
+  unique_spatial_data <- st_as_sf(unique_spatial_data)
+}
+
+```
+```{r}
+# Calculate neighbors and weights matrix only for unique locations
+neighbors <- poly2nb(unique_spatial_data, queen = TRUE)
+weights_matrix <- nb2listw(neighbors, style = "W", zero.policy = TRUE)
+```
+
+```{r}
+# Assume neighbors and weights_matrix are already defined
+neighbors_df <- data.frame(
+  gid = unique_spatial_data$gid,
+  neighbors = I(sapply(neighbors, function(x) x)),  # Store list of neighbors
+  weights = I(sapply(weights_matrix$weights, function(x) x))  # Store list of weights
+)
+
+# Check the structure
+head(neighbors_df)
+
+
+```
+
+```{r}
+# Merge this spatial information back into the final_data
+final_data_new <- left_join(final_data, neighbors_df, by = "gid")
+
+# Check the merge result
+head(final_data_new)
+```
+
+```{r}
+# Function to calculate spatial lags using neighbors and their weights
+calculate_spatial_lags <- function(row, variable_name) {
+  if (!is.na(row$neighbors)) {
+    # Obtain values for neighbors
+    neighbor_vals <- final_data[final_data$gid %in% row$neighbors, variable_name, drop = TRUE]
+    # Calculate weighted sum
+    return(sum(neighbor_vals * row$weights, na.rm = TRUE))
+  } else {
+    return(NA)  # No neighbors case
+  }
+}
+
+# Apply this function to each variable of interest
+final_data$ACTION_ANY_xS_lag <- apply(final_data_new, 1, calculate_spatial_lags, variable_name = "ACTION_ANY_xS")
+final_data$ACTION_DIR_xS_lag <- apply(final_data_new, 1, calculate_spatial_lags, variable_name = "ACTION_DIR_xS")
+final_data$ACTION_IND_xS_lag <- apply(final_data_new, 1, calculate_spatial_lags, variable_name = "ACTION_IND_xS")
+
+# Check the computed lags
+head(final_data[c("ACTION_ANY_xS_lag", "ACTION_DIR_xS_lag", "ACTION_IND_xS_lag")])
+
+```
+

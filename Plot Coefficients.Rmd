@@ -1,0 +1,109 @@
+---
+title: "Plot Coefficients"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Plot Coefficients
+
+```{r}
+
+library(ggplot2)
+library(ggstance)
+library(ggh4x)
+library(here)
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(ggstance)
+library(ggh4x)
+
+# Create data frame with coefficient estimates and standard errors for all regions
+coef_data <- data.frame(
+  term = c(
+    "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value (Instrumented)", "Log Natural Resource Value (Instrumented)", "Lootability Score (Lagged)", "Lootability Score (Lagged)",
+    "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value (Instrumented)", "Log Natural Resource Value (Instrumented)", "Lootability Score (Lagged)", "Lootability Score (Lagged)",
+    "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value (Instrumented)", "Log Natural Resource Value (Instrumented)", "Lootability Score (Lagged)", "Lootability Score (Lagged)",
+    "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value (Instrumented)", "Log Natural Resource Value (Instrumented)", "Lootability Score (Lagged)", "Lootability Score (Lagged)",
+    "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value in Cell (Lagged)", "Log Natural Resource Value (Instrumented)", "Log Natural Resource Value (Instrumented)", "Lootability Score (Lagged)", "Lootability Score (Lagged)"
+  ),
+  estimate = c(
+    0.0013, 0.0009, 0.0071, 0.0038, -0.0033, -0.0279,
+    0.0022, 0.0017, 0.0087, 0.0065, -0.0100, -0.0449,
+    0.0026, 0.0018, 0.0104, 0.0054, -0.0189, -0.0253,
+    -0.0010, -0.0010, -0.0026, -0.0035, 0.0085, 0.0315,
+    0.0004, 0.0005, 0.0175, 0.0098, -0.0301, -0.0684
+  ),
+  std_error = c(
+    0.0002, 0.0002, 0.0006, 0.0008, 0.0068, 0.0092,
+    0.0004, 0.0005, 0.0012, 0.0019, 0.0151, 0.0212,
+    0.0004, 0.0004, 0.0012, 0.0012, 0.0143, 0.0198,
+    0.0004, 0.0005, 0.0012, 0.0019, 0.0112, 0.0213,
+    0.0005, 0.0007, 0.0031, 0.0038, 0.0144, 0.0210
+  ),
+  model = c(
+    "Model 1 (Non-Instrumented)", "Model 2 (Non-Instrumented)", "Model 3 (Instrumented)", "Model 4 (Instrumented)", "Model 2 (Non-Instrumented)", "Model 4 (Instrumented)",
+    "Model 1 (Non-Instrumented)", "Model 2 (Non-Instrumented)", "Model 3 (Instrumented)", "Model 4 (Instrumented)", "Model 2 (Non-Instrumented)", "Model 4 (Instrumented)",
+    "Model 1 (Non-Instrumented)", "Model 2 (Non-Instrumented)", "Model 3 (Instrumented)", "Model 4 (Instrumented)", "Model 2 (Non-Instrumented)", "Model 4 (Instrumented)",
+    "Model 1 (Non-Instrumented)", "Model 2 (Non-Instrumented)", "Model 3 (Instrumented)", "Model 4 (Instrumented)", "Model 2 (Non-Instrumented)", "Model 4 (Instrumented)",
+    "Model 1 (Non-Instrumented)", "Model 2 (Non-Instrumented)", "Model 3 (Instrumented)", "Model 4 (Instrumented)", "Model 2 (Non-Instrumented)", "Model 4 (Instrumented)"
+  ),
+  region = c(
+    "Global Sample", "Global Sample", "Global Sample", "Global Sample", "Global Sample", "Global Sample",
+    "Sub-Saharan Africa", "Sub-Saharan Africa", "Sub-Saharan Africa", "Sub-Saharan Africa", "Sub-Saharan Africa", "Sub-Saharan Africa",
+    "Middle East & North Africa", "Middle East & North Africa", "Middle East & North Africa", "Middle East & North Africa", "Middle East & North Africa", "Middle East & North Africa",
+    "Latin America & Caribbean", "Latin America & Caribbean", "Latin America & Caribbean", "Latin America & Caribbean", "Latin America & Caribbean", "Latin America & Caribbean",
+    "South Asia, East Asia & Pacific", "South Asia, East Asia & Pacific", "South Asia, East Asia & Pacific", "South Asia, East Asia & Pacific", "South Asia, East Asia & Pacific", "South Asia, East Asia & Pacific"
+  )
+)
+
+# Combine similar terms into single row labels
+coef_data$combined_term <- ifelse(grepl("Log Natural Resource Value", coef_data$term),
+                                  "Log Natural Resource Value", coef_data$term)
+
+# Calculate the confidence intervals
+coef_data$lower <- coef_data$estimate - 1.96 * coef_data$std_error
+coef_data$upper <- coef_data$estimate + 1.96 * coef_data$std_error
+
+```
+
+
+
+```{r}
+# Create the coefficient plot
+ggplot(coef_data, aes(x = estimate, y = combined_term, color = model)) +
+  geom_pointrangeh(aes(xmin = lower, xmax = upper), position = position_dodgev(height = 0.5), size = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  labs(title = "Coefficient Plot", x = "Estimate", y = "") +
+  theme_minimal() +
+  facet_nested(region + combined_term ~ ., scales = "free_y", nest_line = element_line(color = "black")) +
+  theme(
+    plot.title = element_text(hjust = 0.5), # Center the title
+    axis.title.y = element_blank(), # Remove y-axis title
+    axis.text.y = element_blank(), # Remove y-axis text labels
+    axis.ticks.y = element_blank(), # Remove y-axis ticks
+    strip.text.y = element_text(angle = 0),
+    strip.background = element_rect(fill = "white"),
+    panel.spacing = unit(1, "lines"),
+    legend.position = "bottom" # Place the legend at the bottom
+  )
+
+```
+```{r}
+# Ensure the directory exists
+output_directory <- "D:/Dropbox/CHRISTIAN/MPhil/Thesis/OxThesis-master/figures"
+if (!dir.exists(output_directory)) {
+  dir.create(output_directory, recursive = TRUE)
+}
+
+# Save the plot as a PDF
+output_file <- file.path(output_directory, "coefficient_plot.pdf")
+ggsave(output_file, plot = plot, width = 10, height = 8)
+```
+
+

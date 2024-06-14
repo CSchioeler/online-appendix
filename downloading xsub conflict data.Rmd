@@ -1,0 +1,462 @@
+---
+title: "Getting Conflict Data from XSub"
+author: "Christian"
+date: "2024-02-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Downloading Merged (MELTT) Conflict Data
+
+```{r}
+library(xSub)
+library(tidyverse)
+```
+
+# Country List
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+# Print the vector to confirm
+print(iso3_countries)
+```
+
+
+## 1k1d Undirected
+```{r}
+# Initialize an empty data frame to store all data
+all_data <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data <- get_xSub_multi(sources_type = "multiple",
+                                 data_type = "panel",
+                                 country = ISO3_country,
+                                 space_unit = "priogrid",
+                                 time_unit = "year",
+                                 geo_window = "1 km",
+                                 time_window = "1 day",
+                                 dyad_type = "undirected",
+                                 merge_files = TRUE,
+                                 out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data",
+                                 write_file = FALSE,  # Set to FALSE to manage data within R
+                                 write_format = "csv",
+                                 verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data <- rbind(all_data, country_data)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xsub_1k1d_prio_year_undirectedv2.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data))
+```
+
+# 1k1d Directed
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+
+```{r}
+# Download 1k1d directed data for all
+# Initialize an empty data frame to store all data
+all_data_directed <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_directed <- get_xSub_multi(sources_type = "multiple",
+                                          data_type = "panel",
+                                          country = ISO3_country,
+                                          space_unit = "priogrid",
+                                          time_unit = "year",
+                                          geo_window = "1 km",
+                                          time_window = "1 day",
+                                          dyad_type = "directed",  # Changed to "directed"
+                                          merge_files = TRUE,
+                                          out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data",
+                                          write_file = FALSE,  # Set to FALSE to manage data within R
+                                          write_format = "csv",
+                                          verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_directed <- rbind(all_data_directed, country_data_directed)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_directed, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xsub_1k1d_prio_year_directed.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_directed))
+```
+
+Now let's download undirected data for 5k1d window.
+
+# 5k1d Undirected
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Download 5k1d undirected data for all
+
+
+# Initialize an empty data frame to store all data
+all_data_5km1d <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_5km1d <- get_xSub_multi(sources_type = "multiple",
+                                       data_type = "panel",
+                                       country = ISO3_country,
+                                       space_unit = "priogrid",
+                                       time_unit = "year",
+                                       geo_window = "5 km",   # Adjusted to 5 km
+                                       time_window = "1 day", # Confirmed 1 day
+                                       dyad_type = "undirected", # Undirected as specified
+                                       merge_files = TRUE,
+                                       out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                       write_file = FALSE,  # Manage data within R
+                                       write_format = "csv",
+                                       verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_5km1d <- rbind(all_data_5km1d, country_data_5km1d)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_5km1d, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_5k1d_prio_year_undirected.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_5km1d))
+
+```
+
+## 5k1d Directed
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Initialize an empty data frame to store all data
+all_data_5km1d_directed <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_5km1d_directed <- get_xSub_multi(sources_type = "multiple",
+                                                data_type = "panel",
+                                                country = ISO3_country,
+                                                space_unit = "priogrid",
+                                                time_unit = "year",
+                                                geo_window = "5 km",   # Adjusted to 5 km
+                                                time_window = "1 day", # Confirmed 1 day
+                                                dyad_type = "directed", # Changed to "directed"
+                                                merge_files = TRUE,
+                                                out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                                write_file = FALSE,  # Manage data within R
+                                                write_format = "csv",
+                                                verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_5km1d_directed <- rbind(all_data_5km1d_directed, country_data_5km1d_directed)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_5km1d_directed, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_5k1d_prio_year_directed.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_5km1d_directed))
+```
+
+# 5k2d Undirected
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Initialize an empty data frame to store all data
+all_data_5km2d_undirected <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_5km2d_undirected <- get_xSub_multi(sources_type = "multiple",
+                                                  data_type = "panel",
+                                                  country = ISO3_country,
+                                                  space_unit = "priogrid",
+                                                  time_unit = "year",
+                                                  geo_window = "5 km",   # Set to 5 km
+                                                  time_window = "2 day", # Set to 2 days
+                                                  dyad_type = "undirected", # Ensuring it's undirected
+                                                  merge_files = TRUE,
+                                                  out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                                  write_file = FALSE,  # Manage data within R
+                                                  write_format = "csv",
+                                                  verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_5km2d_undirected <- rbind(all_data_5km2d_undirected, country_data_5km2d_undirected)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_5km2d_undirected, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_5km2d_prio_year_undirected.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_5km2d_undirected))
+
+```
+
+# 5k2d Directed
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Initialize an empty data frame to store all data
+all_data_5km2d_directed <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_5km2d_directed <- get_xSub_multi(sources_type = "multiple",
+                                                data_type = "panel",
+                                                country = ISO3_country,
+                                                space_unit = "priogrid",
+                                                time_unit = "year",
+                                                geo_window = "5 km",   # Set to 5 km
+                                                time_window = "2 day", # Set to 2 days
+                                                dyad_type = "directed", # Set to "directed"
+                                                merge_files = TRUE,
+                                                out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                                write_file = FALSE,  # Manage data within R
+                                                write_format = "csv",
+                                                verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_5km2d_directed <- rbind(all_data_5km2d_directed, country_data_5km2d_directed)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_5km2d_directed, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_5km2d_prio_year_directed.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_5km2d_directed))
+```
+
+# 1k2d Undirected
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Initialize an empty data frame to store all data
+all_data_1km2d_undirected <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_1km2d_undirected <- get_xSub_multi(sources_type = "multiple",
+                                                  data_type = "panel",
+                                                  country = ISO3_country,
+                                                  space_unit = "priogrid",
+                                                  time_unit = "year",
+                                                  geo_window = "1 km",   # Set to 1 km
+                                                  time_window = "2 day", # Set to 2 days
+                                                  dyad_type = "undirected", # Set to "undirected"
+                                                  merge_files = TRUE,
+                                                  out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                                  write_file = FALSE,  # Manage data within R
+                                                  write_format = "csv",
+                                                  verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_1km2d_undirected <- rbind(all_data_1km2d_undirected, country_data_1km2d_undirected)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_1km2d_undirected, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_1km2d_prio_year_undirected.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_1km2d_undirected))
+
+```
+
+
+
+# 1k2d Directed
+
+```{r}
+# Free up space and remove all objects in the workspace
+rm(list = ls())
+gc()
+
+library(xSub)
+library(tidyverse)
+
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+```
+
+```{r}
+# Initialize an empty data frame to store all data
+all_data_1km2d_directed <- data.frame()
+
+# Loop through each ISO3 country
+for (ISO3_country in iso3_countries) {
+  # Get data for the current country
+  country_data_1km2d_directed <- get_xSub_multi(sources_type = "multiple",
+                                                data_type = "panel",
+                                                country = ISO3_country,
+                                                space_unit = "priogrid",
+                                                time_unit = "year",
+                                                geo_window = "1 km",   # Set to 1 km
+                                                time_window = "2 day", # Set to 2 days
+                                                dyad_type = "directed", # Set to "directed"
+                                                merge_files = TRUE,
+                                                out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data",
+                                                write_file = FALSE,  # Manage data within R
+                                                write_format = "csv",
+                                                verbose = TRUE)
+  # Concatenate with the main dataset
+  all_data_1km2d_directed <- rbind(all_data_1km2d_directed, country_data_1km2d_directed)
+}
+
+# Optional: Write the combined dataset to disk
+write.csv(all_data_1km2d_directed, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_1km2d_prio_year_directed.csv", row.names = FALSE)
+
+# Print out to see a summary of the combined data
+print(dim(all_data_1km2d_directed))
+
+```
+
+# Convert to dta files
+
+```{r}
+library(haven)
+library(tidyverse)
+
+# Convert all the csv files to dta files
+all_data <- read.csv("D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_1k1d_prio_year_undirected.csv")
+
+write_dta(all_data, "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data/xSub Conflict Data/xsub_1k1d_prio_year_undirected.dta")
+
+```
+
+

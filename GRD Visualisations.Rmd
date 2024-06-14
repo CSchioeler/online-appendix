@@ -1,0 +1,436 @@
+---
+title: "GRD Visualisations"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import Original GRD Data
+
+```{r}
+# Import GRD Data
+
+# Clear workspace and free up unused memory
+rm(list = ls())
+
+library(xSub)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(xSub)
+library(here)
+library(haven)
+library(stringr)
+library(readr)
+library(viridis)
+library(kableExtra)
+library(readr)
+
+grd <- read_dta(here("Data", "GRD Dataset", "dfhsw_GRD_public_v1.dta")) |> 
+  filter(year >= 1994 & year <= 2014) |> 
+  rename(continent_grd = continent) 
+
+```
+```{r}
+# Create table showing two columns. One with resource and one with the number of observations in grd containing that resource
+# Generate the summary table, ensuring alphabetical order
+resource_counts <- grd %>%
+  group_by(resource) %>%
+  summarise(`Number of Observations` = n()) %>%
+  arrange(resource)
+
+# Calculate the total number of observations
+total_observations <- sum(resource_counts$`Number of Observations`)
+
+# Add a total row to the data frame
+total_row <- tibble(resource = "Total", `Number of Observations` = total_observations)
+resource_counts <- bind_rows(resource_counts, total_row)
+
+# Create the table using kableExtra with customized column names, longtable, and other options
+kable_table <- resource_counts %>%
+  kable("latex", booktabs = TRUE, col.names = c("Resource", "Number of Observations"), longtable = TRUE, caption = "Resource Counts Table \\label{tab:resource_counts}") %>%
+  kable_styling(latex_options = c("striped", "repeat_header"))
+
+# Print the table to check the output in the console
+print(kable_table)
+
+# Output the table to a .tex file
+kable_file <- "resource_counts_table.tex"
+writeLines(kable_table, kable_file)
+```
+
+
+```{r}
+# Create a mapping for standardizing wb_ccode to match iso3
+country_code_mapping <- c(
+  "AFG" = "AFG", "ALB" = "ALB", "DZA" = "DZA", "AGO" = "AGO", "ARG" = "ARG",
+  "ARM" = "ARM", "BHR" = "BHR", "BGD" = "BGD", "BLZ" = "BLZ", "BEN" = "BEN",
+  "BTN" = "BTN", "BOL" = "BOL", "BWA" = "BWA", "BRA" = "BRA", "BFA" = "BFA",
+  "BDI" = "BDI", "KHM" = "KHM", "CMR" = "CMR", "CPV" = "CPV", "TCD" = "TCD",
+  "CHL" = "CHL", "CHN" = "CHN", "COL" = "COL", "CRI" = "CRI", "CIV" = "CIV",
+  "CUB" = "CUB", "ZAR" = "COD", "DJI" = "DJI", "DOM" = "DOM", "ECU" = "ECU",
+  "EGY" = "EGY", "SLV" = "SLV", "GNQ" = "GNQ", "ERI" = "ERI", "ETH" = "ETH",
+  "GUF" = "GUF", "GAB" = "GAB", "GHA" = "GHA", "GTM" = "GTM", "GIN" = "GIN",
+  "GUY" = "GUY", "HND" = "HND", "IND" = "IND", "IDN" = "IDN", "IRN" = "IRN",
+  "IRQ" = "IRQ", "ISR" = "ISR", "JAM" = "JAM", "JOR" = "JOR", "KAZ" = "KAZ",
+  "KEN" = "KEN", "KWT" = "KWT", "KGZ" = "KGZ", "LAO" = "LAO", "LBN" = "LBN",
+  "LSO" = "LSO", "LBR" = "LBR", "LBY" = "LBY", "MDG" = "MDG", "MWI" = "MWI",
+  "MYS" = "MYS", "MLI" = "MLI", "MRT" = "MRT", "MUS" = "MUS", "MEX" = "MEX",
+  "MDA" = "MDA", "MNG" = "MNG", "MAR" = "MAR", "MOZ" = "MOZ", "MMR" = "MMR",
+  "NAM" = "NAM", "NPL" = "NPL", "NIC" = "NIC", "NER" = "NER", "NGA" = "NGA",
+  "OMN" = "OMN", "PAK" = "PAK", "PAN" = "PAN", "PRY" = "PRY", "PER" = "PER",
+  "PHL" = "PHL", "POL" = "POL", "QAT" = "QAT", "COG" = "COG", "REU" = "REU",
+  "RUS" = "RUS", "RWA" = "RWA", "SAU" = "SAU", "SEN" = "SEN", "SYC" = "SYC",
+  "SLE" = "SLE", "SOM" = "SOM", "ZAF" = "ZAF", "SSD" = "SSD", "LKA" = "LKA",
+  "SDN" = "SDN", "SUR" = "SUR", "SWZ" = "SWZ", "SYR" = "SYR", "TWN" = "TWN",
+  "TJK" = "TJK", "TZA" = "TZA", "THA" = "THA", "TGO" = "TGO", "TUN" = "TUN",
+  "TUR" = "TUR", "UGA" = "UGA", "ARE" = "ARE", "URY" = "URY", "VEN" = "VEN",
+  "VNM" = "VNM", "ESH" = "ESH", "YEM" = "YEM", "ZAR" = "COD", "ZMB" = "ZMB",
+  "ZWE" = "ZWE"
+)
+
+# Apply the mapping to standardize the wb_ccode column
+grd <- grd %>%
+  mutate(wb_ccode = recode(wb_ccode, !!!country_code_mapping))
+
+```
+
+
+```{r}
+# Load the PRIO grid cell shapefile
+priogrid <- st_read(here("Data", "PRIO Shape Files", "priogrid_cell.shp"))
+
+# Load the world administrative boundaries shapefile
+world <- st_read(here("Data", "PRIO Shape Files", "world-administrative-boundaries.shp"))
+```
+```{r}
+# Select specific columns from the world shapefile including geometry
+world_selected <- world %>%
+  select(iso3, color_code, continent, region, geometry)
+
+# Merge the selected columns from the shapefile with the GRD data using the wb_ccode and iso3 columns
+merged_data <- grd %>%
+  left_join(world_selected, by = c("wb_ccode" = "iso3"))
+```
+
+## Check major lootable resources
+```{r}
+# Filter for resources where lootable is equal to 1
+lootable_resources <- grd %>%
+  filter(lootable == 1)
+
+# Get distinct resources
+distinct_resources <- lootable_resources %>%
+  distinct(resource)
+
+# Print the names of each distinct resource
+distinct_resource_names <- distinct_resources$resource
+print(distinct_resource_names)
+```
+
+```{r}
+# Define the shapes for the specific resources
+resource_shapes <- c(
+  "oil" = 22,     # Filled Square
+  "gold" = 21,    # Filled Circle
+  "diamond" = 23, # Filled Diamond
+  "silver" = 24,  # Filled Triangle
+  "cobalt" = 25,  # Filled Cross
+  "other" = 3     # Plus
+)
+
+# Define the colors for the specific resources
+resource_colors <- c(
+  "oil" = "black",
+  "gold" = "gold",
+  "diamond" = "blue",
+  "silver" = "red",
+  "cobalt" = "purple",
+  "other" = "darkgreen"
+)
+
+
+# Assign 'other' to resources not specifically listed
+merged_data <- merged_data %>%
+  mutate(resource_category = ifelse(resource %in% names(resource_shapes), resource, "other"))
+
+# Create an sf object with coordinates
+merged_data_sf <- st_as_sf(merged_data, coords = c("longitude", "latitude"), crs = 4326)
+
+
+```
+
+## Africa
+
+```{r}
+create_resource_map_africa <- function() {
+  # Filter the merged data for Africa
+  continent_data <- merged_data_sf %>%
+    filter(continent == "Africa")
+  
+  # Filter the world data for Africa
+  africa_borders <- world %>%
+    filter(continent == "Africa") %>%
+    st_transform(crs = st_crs(4326))
+  
+  # Check if continent_data is empty
+  if (nrow(continent_data) == 0) {
+    message("No data for continent: Africa")
+    return(NULL)
+  }
+  
+  # Transform the data to the specified projection
+  projection_crs <- "+proj=laea +lon_0=20 +lat_0=-10 +datum=WGS84 +units=m +no_defs"
+  continent_data <- st_transform(continent_data, crs = projection_crs)
+  africa_borders <- st_transform(africa_borders, crs = projection_crs)
+  
+  # Create the plot
+  plot <- ggplot() +
+    geom_sf(data = africa_borders, fill = "grey90", color = "gray50") +  # Add country borders with a different color
+    geom_sf(data = continent_data, aes(color = resource_category, shape = resource_category), size = 1.5) +
+    scale_color_manual(values = resource_colors) +
+    scale_shape_manual(values = resource_shapes) +
+    labs(title = "Natural Resource Locations in Africa",
+         color = "Resource",
+         shape = "Resource") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16),
+      legend.position = "right",
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_sf(crs = projection_crs)
+  
+  # Save the plot as a PDF
+  pdf_filename <- "resource_map_africa.pdf"
+  ggsave(pdf_filename, plot, width = 10, height = 8, units = "in")
+  
+  # Print the plot
+  print(plot)
+}
+
+# Create the map for Africa
+create_resource_map_africa()
+
+```
+
+
+```{r}
+create_resource_map <- function(continent_name, projection_crs) {
+  # Filter the merged data for the specified continent
+  continent_data <- merged_data_sf %>%
+    filter(continent == continent_name)
+  
+  # Filter the world data for the specified continent
+  continent_borders <- world %>%
+    filter(continent == continent_name) %>%
+    st_transform(crs = st_crs(4326))
+  
+  # Check if continent_data is empty
+  if (nrow(continent_data) == 0) {
+    message(paste("No data for continent:", continent_name))
+    return(NULL)
+  }
+  
+  # Transform the data to the specified projection
+  continent_data <- st_transform(continent_data, crs = projection_crs)
+  continent_borders <- st_transform(continent_borders, crs = projection_crs)
+  
+  # Create the plot
+  plot <- ggplot() +
+    geom_sf(data = continent_borders, fill = "grey90", color = "gray50") +  # Add country borders with a different color
+    geom_sf(data = continent_data, aes(color = resource_category, shape = resource_category), size = 1.5) +
+    scale_color_manual(values = resource_colors) +
+    scale_shape_manual(values = resource_shapes) +
+    labs(title = paste("Natural Resource Locations in", continent_name),
+         color = "Resource",
+         shape = "Resource") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 30),
+      legend.position = "right",
+      legend.text = element_text(size = 22),
+      legend.title = element_text(size = 24),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_sf(crs = projection_crs)
+  
+  # Save the plot as a PDF
+  pdf_filename <- paste0("resource_map_", tolower(continent_name), ".pdf")
+  ggsave(pdf_filename, plot, width = 10, height = 8, units = "in")
+  
+  # Print the plot
+  print(plot)
+}
+
+# Define the projections for each continent
+projections <- list(
+  Africa = "+proj=laea +lon_0=20 +lat_0=-10 +datum=WGS84 +units=m +no_defs",
+  Americas = "+proj=laea +lon_0=-100 +lat_0=40 +datum=WGS84 +units=m +no_defs",
+  Asia = "+proj=laea +lon_0=100 +lat_0=40 +datum=WGS84 +units=m +no_defs",
+  Europe = "+proj=laea +lon_0=10 +lat_0=50 +datum=WGS84 +units=m +no_defs"
+)
+
+# Create maps for each continent
+for (continent in names(projections)) {
+  create_resource_map(continent, projections[[continent]])
+}
+
+```
+
+```{r}
+# Print all distinct continents and regions from merged_data
+distinct_continents <- merged_data %>%
+  distinct(continent_grd, continent, region)
+
+```
+
+```{r}
+create_resource_map <- function(region_name, projection_crs) {
+  # Filter the merged data for the specified region
+  region_data <- merged_data_sf %>%
+    filter(region == region_name)
+  
+  # Filter the world data for the specified region
+  region_borders <- world %>%
+    filter(region == region_name) %>%
+    st_transform(crs = st_crs(4326))
+  
+  # Check if region_data is empty
+  if (nrow(region_data) == 0) {
+    message(paste("No data for region:", region_name))
+    return(NULL)
+  }
+  
+  # Transform the data to the specified projection
+  region_data <- st_transform(region_data, crs = projection_crs)
+  region_borders <- st_transform(region_borders, crs = projection_crs)
+  
+  # Create the plot
+  plot <- ggplot() +
+    geom_sf(data = region_borders, fill = "grey90", color = "gray50") +  # Add country borders with a different color
+    geom_sf(data = region_data, aes(color = resource_category, shape = resource_category), size = 1.5) +
+    scale_color_manual(values = resource_colors) +
+    scale_shape_manual(values = resource_shapes) +
+    labs(title = paste("Natural Resource Locations in", region_name),
+         color = "Resource",
+         shape = "Resource") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16),
+      legend.position = "right",
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_sf(crs = projection_crs)
+  
+  # Save the plot as a PDF
+  pdf_filename <- paste0("resource_map_", tolower(gsub(" ", "_", region_name)), ".pdf")
+  ggsave(pdf_filename, plot, width = 10, height = 8, units = "in")
+  
+  # Print the plot
+  print(plot)
+}
+
+# Define the projections for each region
+projections <- list(
+  "South America" = "+proj=laea +lon_0=-60 +lat_0=-15 +datum=WGS84 +units=m +no_defs",
+  "Central America" = "+proj=laea +lon_0=-85 +lat_0=15 +datum=WGS84 +units=m +no_defs",
+  "Caribbean" = "+proj=laea +lon_0=-75 +lat_0=15 +datum=WGS84 +units=m +no_defs"
+)
+
+# Create maps for each region
+for (region in names(projections)) {
+  create_resource_map(region, projections[[region]])
+}
+
+# Create World Map
+create_world_map <- function(projection_crs) {
+  # Filter the world data
+  world_data <- merged_data_sf %>%
+    st_transform(crs = st_crs(4326))
+  
+  # Transform the data to the specified projection
+  world_data <- st_transform(world_data, crs = projection_crs)
+  
+  # Create the plot
+  plot <- ggplot() +
+    geom_sf(data = world, fill = "grey90", color = "gray50") +  # Add country borders with a different color
+    geom_sf(data = world_data, aes(color = resource_category, shape = resource_category), size = 1.5) +
+    scale_color_manual(values = resource_colors) +
+    scale_shape_manual(values = resource_shapes) +
+    labs(title = "Natural Resource Locations in the World",
+         color = "Resource",
+         shape = "Resource") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 30),
+      legend.position = "right",
+      legend.text = element_text(size = 22),
+      legend.title = element_text(size = 24),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_sf(crs = projection_crs)
+  
+  # Save the plot as a PDF
+  pdf_filename <- "resource_map_world.pdf"
+  ggsave(pdf_filename, plot, width = 20, height = 10, units = "in")
+  
+  # Print the plot
+  print(plot)
+}
+
+# Create world map
+create_world_map("ESRI:54030")
+
+```
+
+# Create Summary Table
+```{r}
+library(dplyr)
+library(haven)
+library(here)
+library(knitr)
+library(kableExtra)
+library(stringr)
+
+# Assuming `merged_data` already has the necessary columns
+summary_table <- merged_data %>%
+  select(continent, country, gid, year, resource) %>%
+  mutate(country = str_to_title(country)) %>%
+  group_by(continent, country) %>%
+  summarize(
+    `Distinct Prio-Grid Cells` = n_distinct(gid),
+    `Years Covered` = paste(min(year), "-", max(year)),
+    `Distinct Resources` = n_distinct(resource),
+    .groups = 'drop'
+  )
+
+# Convert the summary table to LaTeX format
+latex_table <- kable(summary_table, format = "latex", booktabs = TRUE, longtable = TRUE, 
+                     caption = "Summary of Distinct PRIO-GRID Cells, Years, and Resources by Country and Continent",
+                     col.names = c("Continent", "Country", "Distinct Prio-Grid Cells", "Years Covered", "Distinct Resources")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "repeat_header")) %>%
+  column_spec(2, width = "3cm") %>%  # Adjust the width of the Country column
+  column_spec(3, width = "2.5cm") %>%  # Adjust the width of the Distinct Prio-Grid Cells column
+  column_spec(4, width = "2.5cm") %>%  # Adjust the width of the Years Covered column
+  column_spec(5, width = "3cm") %>%  # Adjust the width of the Distinct Resources column
+  pack_rows(index = table(summary_table$continent)) %>%
+  kable_styling(font_size = 8)  # Reduce the font size
+
+# Define the file path using the here package
+tex_file <- here::here("RTables", "summary_table_continent_country_priogrid_years_resources.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_table, tex_file)
+
+
+
+
+```
+

@@ -1,0 +1,107 @@
+---
+title: "Replicating Dube Vargas (baseline)"
+author: "Christian"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Replicating Dube Vargas As Baseline
+Note: Dube and Vargas look at the period 1988 to 2005. I have data from 1996 to 2014.
+They use average number of crude oil barrels per day in 1988, the beginning of their sample period. Since I don't have resource data by day but instead by year, I could divide each by 365 to get average daily production? Since my resource dataset covers 1994 and 1995 and I could measure oil production based on those years, i.e. before the conflict period (or copy Dube & Vargas and use their 1988 measure?)
+
+# Import the Colombia Conflict Data from xSub
+I import the Colombia conflict data from xSub with the following specifications:
+* multi-source 1km - 1day filter, undirected dyad, with unit of analysis Admin-2 (district, county) and temporal unit year.
+
+```{r}
+library(tidyverse)
+library(haven)
+library(here)
+
+# Import the Colombia conflict data
+conflict_colombia <- read_csv(here("Data", "xSub Conflict Data", "xSub_MELTT1km1dB_COL_adm2_year.csv"))
+
+```
+
+Let's check the dataset
+
+# Getting the GRD Resources Data: Filter for Colombia
+
+```{r}
+# Load packages
+library(tidyverse)
+library(haven)
+library(here)
+
+# Import dta file
+grd <- read_dta(here("Data", "GRD Dataset", "dfhsw_GRD_public_v1.dta"))
+```
+
+## Filter for country and data range
+Now let's filter for Colombia and the year range matching the conflict dataset. We also drop some irrelevant columns. I include 1994 to form the baseline lootability estimate (before sample period starting 1995). 1994 is the earliest year in the dataset for Colombia.
+
+```{r}
+# Filter for Colombia
+colombia_grd <- grd |> 
+  filter(country == "colombia") |> 
+  filter(year >= 1994 & year <= 2014) |> 
+  select(-c("COWcode", "wb_ccode", "gwno", "log_comtrade_val", "log_wb_val", "log_usgs_val", "log_multicolour_val"))
+
+colombia_grd |>
+  head()
+```
+
+Let's check the summary statistics for the filtered dataset. First, let's list all the variables we have.
+
+```{r}
+# List all variables
+colombia_grd |> 
+  names()
+
+```
+
+First, what is the date coverage?
+
+```{r}
+# Date coverage
+colombia_grd |> 
+  select(year) |> 
+  distinct() |> 
+  pull(year)
+```
+
+So the data covers the years 1994 to 2014.
+
+How many different resources are included?
+
+```{r}
+# Distinct types of resources, print them
+colombia_grd |> 
+  select(resource) |> 
+  distinct() |> 
+  pull(resource)
+
+```
+# Clean admin2 data
+
+```{r}
+# First display how many unique values there are of admin1
+unique_admin2 <- colombia_grd |> 
+  select(admin2) |> 
+  distinct() |> 
+  nrow()
+
+print(paste("Unique admin2 values:", unique_admin2))
+
+# Print the names of admin1 unique values
+unique_admin2_names <- colombia_grd |> 
+  select(admin2) |> 
+  distinct() |> 
+  pull()
+
+print(unique_admin2_names)
+```
+

@@ -1,0 +1,276 @@
+---
+title: "Reshaping GRD Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import the GRD Data
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(here)
+library(haven)
+
+# Import the data
+grd <- read_dta(here("Data", "GRD Dataset", "dfhsw_GRD_public_v1.dta"))
+
+grd |> 
+  head()
+
+```
+## Filter for country and data range, rename PRIO_GID column
+Now let's filter for Colombia and the year range matching the conflict dataset. We also drop some irrelevant columns
+
+```{r}
+# Filter for Colombia
+colombia_grd <- grd |> 
+  filter(country == "colombia") |> 
+  filter(year >= 1995 & year <= 2014 & year != 2000) |> 
+  select(-c("COWcode", "wb_ccode", "gwno", "log_comtrade_val", "log_wb_val", "log_usgs_val", "log_multicolour_val"))
+
+# Rename the PRIO-GRID cell variable
+colombia_grd <- colombia_grd |> 
+  rename(PRIO_GID = gid)
+
+colombia_grd |>
+  head()
+```
+
+## Remove duplicates from GRD Colombia Dataset
+
+Let's check if there are any duplicates, i.e. all variable entries are the same except obs_no.
+
+```{r}
+# Check for duplicates
+colombia_grd |>
+  select(-obs_no) |>
+  duplicated() |>
+  sum()
+
+```
+
+There are 20 duplicates. Let's remove them.
+
+```{r}
+# Step 1: Add an identifier for each group of duplicates (except for 'obs_no')
+resources_marked <- colombia_grd %>%
+  group_by(across(-obs_no)) %>% 
+  mutate(dup_id = row_number()) %>%
+  ungroup()
+
+# Step 2: Keep only the first of each set of duplicates
+colombia_filtered <- resources_marked %>%
+  filter(dup_id == 1) %>%
+  select(-dup_id)  # Removing the temporary 'dup_id' column
+
+# Optional: Check the new size of the dataset
+print(paste("New dataset size:", nrow(colombia_filtered)))
+```
+
+# Aggregate PRIO_GID-year pairs to one row (same resource type)
+We distinguish between variables that are resource-invariant and those that are not. The resource-invariant variables are the ones that are the same for all observations with the same PRIO-GRID cell and year. The resource-variant variables are the ones that differ between observations with the same PRIO-GRID cell and year. When aggregating rows into one row, we keep the resource-invariant variables as they are and create new variables for the resource-variant variables. Furthermore, if across two rows with identical year and PRIO_GID, the resource is the same we aggregate certain variables and keep the rest as they are. 
+
+As a first step, I will reshape the dataset to a wide format where each resource-specific variable is prefixed with the resource name. This will allow us to easily aggregate the resource-specific variables later.
+
+Let's count how many PRIO_GID-year pairs have of each resource type.
+
+```{r}
+# Count the number of PRIO_GID-year pairs for each resource type
+duplicates_count <- colombia_filtered %>%
+  group_by(PRIO_GID, year, resource) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Display the counts of duplicates
+print(duplicates_count)
+
+# Optionally, to see the total number of duplicates
+total_duplicates <- sum(duplicates_count$count) - nrow(duplicates_count)
+print(paste("Total number of duplicate observations:", total_duplicates))
+```
+So we should expect to remove 158 observations after aggregating by same resource.
+
+```{r}
+# Define lists of columns based on their aggregation rule
+sum_columns <- c("annuallocationcapacity", "comtrade_value", "wb_value", "usgs_value", "multicolour_value",
+                 "world_val_nomc", "world_val_withmc", "wd_annual_value_location1", "wd_annual_value_location2",
+                 "exp_annual_value_location1", "exp_annual_value_location2")
+
+# Define a custom summarise function for non-sum columns
+concat_if_different <- function(x) {
+  unique_x <- unique(x)
+  if(length(unique_x) == 1) {
+    return(as.character(unique_x))
+  } else {
+    return(paste(unique_x, collapse = "; "))
+  }
+}
+
+colombia_aggregated <- colombia_filtered %>%
+  group_by(PRIO_GID, year, resource) %>%
+  summarise(across(all_of(sum_columns), sum, na.rm = TRUE), # Sum the defined columns
+            across(-all_of(sum_columns), concat_if_different), # Concatenate if different for the rest
+            .groups = 'drop') # Prevents the result from being grouped
+
+```
+
+## Verify same-resource aggregation
+Let's check if the aggregation was successful.
+
+```{r}
+# Check if the aggregation was successful
+duplicates_after_aggregation <- colombia_aggregated %>%
+  group_by(PRIO_GID, year, resource) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Check if there are any duplicates left
+if (nrow(duplicates_after_aggregation) > 0) {
+  print("There are remaining duplicates after aggregation.")
+} else {
+  print("No duplicates remain after aggregation. Aggregation was successful.")
+}
+
+```
+# Aggregate PRIO_GID-year pairs to one row (different resource types)
+Now we aggregate the rows with the same PRIO_GID and year but different resources. We will keep the resource-invariant variables as they are and create new variables for the resource-variant variables by reshaping the data.
+
+
+Now let's aggregate the data. 
+```{r}
+columns_to_reshape <- setdiff(names(colombia_aggregated), c("PRIO_GID", "year"))
+
+# Pivot the dataset to wide format
+colombia_wide <- colombia_aggregated %>%
+  pivot_wider(names_from = resource, names_prefix = "res_", 
+              values_from = all_of(columns_to_reshape),
+              values_fill = list(value = NA)) # Fill missing values with NA
+
+# Note: The values_fill argument is set to fill with NA for simplicity, 
+# adjust as needed based on your specific requirements
+
+# Print the result to check
+print(colombia_wide)
+
+# Count the final number of columns to verify
+final_num_columns <- ncol(colombia_wide)
+print(paste("Final number of columns:", final_num_columns))
+```
+## Verifying the aggregation across resources
+
+Let's verify this aggregation was done correctly
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+# --- Step 1: Verify Initial Conditions Before Reshaping ---
+# Count unique PRIO_GID-year combinations in the aggregated data
+unique_PRIO_GID_year_combinations <- nrow(distinct(colombia_aggregated, PRIO_GID, year))
+
+# Calculate the expected number of columns after reshaping
+num_unique_resources <- length(unique(colombia_aggregated$resource))
+columns_to_reshape <- setdiff(names(colombia_aggregated), c("PRIO_GID", "year"))
+expected_columns_after_reshaping <- 2 + (num_unique_resources * length(columns_to_reshape))
+
+# --- Reshaping (already provided) ---
+colombia_wide <- colombia_aggregated %>%
+  pivot_wider(names_from = resource, names_prefix = "res_", 
+              values_from = all_of(columns_to_reshape),
+              values_fill = list(value = NA))
+
+# --- Step 3: Verification after Reshaping ---
+# Verify number of rows matches unique PRIO_GID-year combinations
+actual_rows_reshaped <- nrow(colombia_wide)
+if (actual_rows_reshaped == unique_PRIO_GID_year_combinations) {
+  print("Rows verification passed: Each observation has a unique PRIO_GID-year pair.")
+} else {
+  print("Rows verification failed: Mismatch in expected and actual number of unique PRIO_GID-year pairs.")
+}
+
+# Verify the number of columns
+actual_columns_reshaped <- ncol(colombia_wide)
+if (actual_columns_reshaped == expected_columns_after_reshaping) {
+  print("Columns verification passed: The number of columns matches the expected number after reshaping.")
+} else {
+  print(paste("Columns verification failed: Expected", expected_columns_after_reshaping, "columns, but found", actual_columns_reshaped, "columns."))
+}
+
+# Check for uniqueness of PRIO_GID-year pairs in the reshaped dataset
+unique_pairs_post_reshape <- colombia_wide %>%
+  distinct(PRIO_GID, year) %>%
+  nrow()
+if (unique_pairs_post_reshape == actual_rows_reshaped) {
+  print("Post-reshaping verification passed: Each PRIO_GID-year pair is unique in the reshaped dataset.")
+} else {
+  print("Post-reshaping verification failed: Some PRIO_GID-year pairs may not be unique.")
+}
+
+```
+## Create aggregate lootability column
+
+```{r}
+# Example to list down all lootable columns (assuming a naming convention is followed)
+lootable_columns <- names(colombia_wide)[grepl("lootable", names(colombia_wide))]
+print(lootable_columns)
+
+# Assuming lootable_columns contains the names of the character-type lootable columns
+colombia_wide <- colombia_wide %>%
+  mutate(total_lootable = rowSums(select(., all_of(lootable_columns)) %>%
+                                  sapply(as.numeric), na.rm = TRUE))
+
+```
+```{r}
+selected_columns <- c("PRIO_GID", "year", lootable_columns, "total_lootable")
+
+colombia_wide %>%
+  select(all_of(selected_columns))
+```
+It worked.
+
+
+## Remove unnecessary columns
+
+These are the likely resource-invariant columns:
+```{r}
+library(dplyr)
+library(tidyr)
+
+# Define resource-invariant variables
+resource_invariant_vars <- c("country", "region_wb",
+                             "continent", "admin1", "admin2", "gid_centroid_latitude", "gid_centroid_longitude")
+
+# Function to check for consistent values across all reshaped columns of a given invariant variable
+check_invariant_consistency <- function(data, invariant_var) {
+  # Generate the pattern to match the reshaped column names for the invariant variable
+  pattern <- paste0("^", invariant_var, "_res_")
+  
+  # Identify all columns for the invariant variable
+  columns <- grep(pattern, names(data), value = TRUE)
+  
+  # Iterate over each row to check consistency of the variable's values
+  consistent_rows <- apply(data[columns], 1, function(row) {
+    unique_values <- unique(na.omit(row))
+    length(unique_values) == 1
+  })
+  
+  # Return the proportion of rows that are consistent
+  mean(consistent_rows, na.rm = TRUE)
+}
+
+# Check consistency for each resource-invariant variable and collect results
+consistency_results <- sapply(resource_invariant_vars, function(var) {
+  check_invariant_consistency(colombia_wide, var)
+})
+
+# Print the consistency check results
+print("Consistency check results for resource-invariant variables:")
+print(consistency_results)
+```
+We see that they are consistent except admin1 and admin2 - PRIO_GRID cells may cover more than one administrative region.
+
+

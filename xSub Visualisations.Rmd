@@ -1,0 +1,670 @@
+---
+title: "Conflict Visualisations xSub"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import xSub Data
+
+```{r}
+library(xSub)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(xSub)
+library(here)
+library(haven)
+library(stringr)
+
+```
+
+```{r}
+# Load the PRIO grid cell shapefile
+priogrid <- st_read(here("Data", "PRIO Shape Files", "priogrid_cell.shp"))
+
+# Load the world administrative boundaries shapefile
+world <- st_read(here("Data", "PRIO Shape Files", "world-administrative-boundaries.shp"))
+```
+
+
+```{r}
+panel_data <- read_dta(here::here("..", "Stata Regressions", "code_tables_results", "Data", "matched_grd_xsub_withlags.dta"))
+
+```
+
+```{r}
+# Subset PRIO-GRID shapefile to match the spatial extent of xSub data
+priogrid <- priogrid %>%
+  filter(gid %in% panel_data$gid)
+
+```
+
+```{r}
+# Create world map showing conflict counts in 1994
+# Extract xSub data for the year 2015
+panel_data_1994 <- panel_data %>% 
+  filter(year == 1994 & country == "colombia")
+  
+
+# Drop overlapping columns except for the column used for merging (gid)
+panel_data_1994 <- panel_data_1994 %>% 
+  select(gid, setdiff(names(panel_data_1994), names(priogrid)))
+
+# Merge PRIO-GRID shapefile with xSub data
+map_2015 <- merge(priogrid, panel_data_1994, by.x = "gid", by.y = "gid")
+
+# Plot the data using ggplot2
+ggplot(data = st_as_sf(map_2015)) +
+  geom_sf(aes(fill = ACTION_ANY_xS)) +
+  labs(title = "Conflict in PRIO-GRID cells (2015)", fill = "Actions") +
+  theme_minimal()
+
+```
+
+```{r}
+# Filter the panel data to include only Colombia
+panel_data_col <- panel_data %>% filter(country == "colombia")
+
+# Group by gid and calculate the average of ACTION_ANY_xS over all years
+average_conflict <- panel_data_col %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY_xS = mean(ACTION_ANY_xS, na.rm = TRUE))
+
+# Check the aggregated data
+print("Aggregated data (average ACTION_ANY_xS):")
+print(head(average_conflict))
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_col_avg <- merge(priogrid, average_conflict, by = "gid")
+
+# Check the merged data
+print("Merged data with average conflict counts:")
+print(summary(map_col_avg))
+
+# Plot the data using ggplot2
+ggplot(data = st_as_sf(map_col_avg)) +
+  geom_sf(aes(fill = avg_ACTION_ANY_xS)) +
+  labs(title = "Average Conflict Counts in PRIO-GRID cells - Colombia", fill = "Average Actions") +
+  theme_minimal()
+```
+
+```{r}
+# Filter the panel data to include only countries in the Americas
+# Assuming there's a 'continent' column in the panel_data
+panel_data_americas <- panel_data %>% filter(continent == "americas")
+
+# Group by gid and calculate the average of ACTION_ANY_xS over all years
+average_conflict_americas <- panel_data_americas %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY_xS = mean(ACTION_ANY_xS, na.rm = TRUE))
+
+# Check the aggregated data
+print("Aggregated data (average ACTION_ANY_xS) for the Americas:")
+print(head(average_conflict_americas))
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_americas_avg <- merge(priogrid, average_conflict_americas, by = "gid")
+
+# Check the merged data
+print("Merged data with average conflict counts for the Americas:")
+print(summary(map_americas_avg))
+
+# Create the plot using ggplot2
+plot <- ggplot(data = st_as_sf(map_americas_avg)) +
+  geom_sf(aes(fill = avg_ACTION_ANY_xS)) +
+  scale_fill_viridis_c(option = "viridis") +
+  labs(title = "Average Conflict Counts in PRIO-GRID cells - Americas", fill = "Average Actions") +
+  theme_minimal()
+
+# Save the plot with specified dimensions and resolution
+ggsave("average_conflict_counts_americas.png", plot, width = 12, height = 8, dpi = 300)
+```
+```{r}
+unique_countries_americas <- panel_data_americas %>% select(country) %>% distinct()
+
+```
+
+# Import pure xSub Data
+
+```{r}
+# Clear workspace and free up unused memory
+rm(list = ls())
+
+library(xSub)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(xSub)
+library(here)
+library(haven)
+library(stringr)
+library(readr)
+library(viridis)
+
+# Load 1k1d xSub data
+xsub_data <- read_csv(here("Data", "xSub Conflict Data", "xsub_1k1d_prio_year_undirected.csv"))
+
+xsub_data <- xsub_data |> 
+  filter(YEAR >= 1994 & YEAR <= 2014) |> 
+  rename(gid = PRIO_GID)
+```
+
+```{r}
+# Load the PRIO grid cell shapefile
+priogrid <- st_read(here("Data", "PRIO Shape Files", "priogrid_cell.shp"))
+
+# Load the world administrative boundaries shapefile
+world <- st_read(here("Data", "PRIO Shape Files", "world-administrative-boundaries.shp"))
+```
+
+```{r}
+# Select specific columns from the world shapefile including geometry
+world_selected <- world %>%
+  select(iso3, color_code, continent, region, geometry)
+
+# Merge the selected columns from the shapefile with the xsub_data using the ISO and iso3 columns
+merged_data_xsub <- xsub_data %>%
+  left_join(world_selected, by = c("ISO" = "iso3"), relationship = "many-to-many")
+
+```
+
+
+```{r}
+# Define list of countries
+iso3_countries <- c(
+  "AFG", "AGO", "ALB", "ARE", "ARG", "AUS", "ARM", "AZE", "BDI", "BEL", "BEN", "BFA", "BGD", "BGR", "BHR", "BHS", "BIH", "BLR", "BLZ", "BOL", "BRA", "BRB", "BTN", "BWA", "CAF", "CAN", "CHE", "CHN", "CIV", "CMR", "COD", "COG", "COL", "COM", "CRI", "CUB", 
+  "CYP", "DEU", "DJI", "DOM", "DZA", "ECU", "EGY", "ERI", "ESP", "EST", "ETH", "FIN", "FRA", "GAB", "GBR", "GEO", "GHA", "GIB", "GIN", "GMB", "GNB", "GNQ", "GRC", "GTM", "GUY", "HND", "HRV", "HTI", "IDN", "IND", "IRL", "IRN", "IRQ",
+  "ISR", "ITA", "JAM", "JOR", "JPN", "KAZ", "KEN", "KGZ", "KHM", "KWT", "LAO", "LBN", "LBR", "LBY", "LKA", "LSO", "LTU", "LVA", "MAR", "MDA", "MDG", "MDV", "MEX", "MKD", "MLI", "MLT", "MMR", "MNE",
+  "MOZ", "MRT", "MUS", "MWI", "MYS", "NAM", "NER", "NGA", "NIC", "NLD", "NOR", "NPL", "NZL", "OMN", "PAK", "PAN", "PER", "PHL", "PNG", "PRI", "PRT", "PRY", "PSE", "QAT", "ROU", "RUS", "RWA", "SAU", "SDN", "SEN", "SLB", "SLE", "SLV", "SOM",
+  "SRB", "SSD", "SVK", "SWE", "SWZ", "SYR", "TCD", "TGO", "THA", "TJK", "TKM", "TLS", "TTO", "TUN", "TUR", "TZA", "UGA", "UKR", "USA", "UZB", "VEN", "VNM", "YEM", "ZAF", "ZMB", "ZWE"
+)
+
+# Check which ISO values are not in the xSub data
+missing_iso_values <- setdiff(iso3_countries, xsub_data$ISO)
+
+# Print the missing ISO values
+print("Missing ISO values:")
+print(missing_iso_values)
+```
+```{r}
+# Check if I can get these extra xSub data separately
+# Loop through each ISO3 country
+SWE_data <- get_xSub_multi(sources_type = "multiple",
+                                 data_type = "panel",
+                                 country = "SWE",
+                                 space_unit = "priogrid",
+                                 time_unit = "year",
+                                 geo_window = "1 km",
+                                 time_window = "1 day",
+                                 dyad_type = "undirected",
+                                 merge_files = TRUE,
+                                 out_dir =  "D:/Dropbox/CHRISTIAN/MPhil/Thesis/R Code/Data",
+                                 write_file = FALSE,  # Set to FALSE to manage data within R
+                                 write_format = "csv",
+                                 verbose = TRUE)
+```
+When downloading Argentina, I only get observations from 1992 using 1k1d undirected.
+When downloading Australia, I only get observations from 2018 using 1k1d undirected.
+When downloading Cyprus, I only get observations from 2018 and 2019 using 1k1kd undirected
+When downloading Estonia, I only get observations from 1987-1992 using 1k1d undirected.
+When downloading Georgia, I get observations from 1987-2019 using 1k1d undirected.THIS SHOULD HAVE BEEN INCLUDED! BAD CODING FROM XSUB!!!
+When downloading Ghana, this is not possible
+When downloading Gibraltar I get one observation from 1988 using 1k1d undirected
+When downloading Guinea I get observations from 1993-2019 using 1k1d undirected - bad coding from xSub again.
+When downloading Maldives, this is not possible
+When downloading Montenegro, I only get observations from 2018-2019
+When downloading New Zealand, I only get observations from 1974
+When downloading Puerto Rico, this is not possible.
+When downloading Sweden, this is not possible.
+
+In conclusion, Guinea and Georgia should have been included in the xSub data. The rest of the countries are not possible to include in the xSub data.
+
+
+
+CONTINUE WITH THE REST OF THE COUNTRIES
+
+
+```{r}
+# Select specific columns from the world shapefile including geometry
+world_selected <- world %>%
+  select(iso3, color_code, continent, region, geometry)
+
+# Merge the selected columns from the shapefile with the GRD data using the wb_ccode and iso3 columns
+merged_data <- xsub_data %>%
+  left_join(world_selected, by = c("ISO" = "iso3"))
+```
+
+```{r}
+# Create a named vector for ISO to continent mapping
+iso_to_continent <- c(
+  "AFG" = "Asia", "AGO" = "Africa", "ALB" = "Europe", "ARE" = "Asia", "AUS" = "Oceania",
+  "ARM" = "Asia", "AZE" = "Asia", "BDI" = "Africa", "BEL" = "Europe", "BEN" = "Africa",
+  "BFA" = "Africa", "BGD" = "Asia", "BGR" = "Europe", "BHR" = "Asia", "BHS" = "Americas",
+  "BIH" = "Europe", "BLR" = "Europe", "BLZ" = "Americas", "BOL" = "Americas", "BRA" = "Americas",
+  "BRB" = "Americas", "BTN" = "Asia", "BWA" = "Africa", "CAF" = "Africa", "CAN" = "Americas",
+  "CHE" = "Europe", "CHN" = "Asia", "CIV" = "Africa", "CMR" = "Africa", "COD" = "Africa",
+  "COG" = "Africa", "COL" = "Americas", "COM" = "Africa", "CRI" = "Americas", "CUB" = "Americas",
+  "CYP" = "Europe", "DEU" = "Europe", "DJI" = "Africa", "DOM" = "Americas", "DZA" = "Africa",
+  "ECU" = "Americas", "EGY" = "Africa", "ERI" = "Africa", "ESP" = "Europe", "EST" = "Europe",
+  "ETH" = "Africa", "FIN" = "Europe", "FRA" = "Europe", "GAB" = "Africa", "GBR" = "Europe",
+  "GIB" = "Europe", "GMB" = "Africa", "GNB" = "Africa", "GNQ" = "Africa", "GRC" = "Europe",
+  "GTM" = "Americas", "GUY" = "Americas", "HND" = "Americas", "HRV" = "Europe", "HTI" = "Americas",
+  "IDN" = "Asia", "IND" = "Asia", "IRL" = "Europe", "IRN" = "Asia", "IRQ" = "Asia",
+  "ISR" = "Asia", "ITA" = "Europe", "JAM" = "Americas", "JOR" = "Asia", "JPN" = "Asia",
+  "KAZ" = "Asia", "KEN" = "Africa", "KGZ" = "Asia", "KHM" = "Asia", "KWT" = "Asia",
+  "LAO" = "Asia", "LBN" = "Asia", "LBR" = "Africa", "LBY" = "Africa", "LKA" = "Asia",
+  "LSO" = "Africa", "LTU" = "Europe", "LVA" = "Europe", "MAR" = "Africa", "MDA" = "Europe",
+  "MDG" = "Africa", "MEX" = "Americas", "MKD" = "Europe", "MLI" = "Africa", "MLT" = "Europe",
+  "MMR" = "Asia", "MNE" = "Europe", "MOZ" = "Africa", "MRT" = "Africa", "MUS" = "Africa",
+  "MWI" = "Africa", "MYS" = "Asia", "NAM" = "Africa", "NER" = "Africa", "NGA" = "Africa",
+  "NIC" = "Americas", "NLD" = "Europe", "NOR" = "Europe", "NPL" = "Asia", "NZL" = "Oceania",
+  "OMN" = "Asia", "PAK" = "Asia", "PAN" = "Americas", "PER" = "Americas", "PHL" = "Asia",
+  "PNG" = "Oceania", "PRT" = "Europe", "PRY" = "Americas", "PSE" = "Asia", "QAT" = "Asia",
+  "ROU" = "Europe", "RUS" = "Europe", "RWA" = "Africa", "SAU" = "Asia", "SDN" = "Africa",
+  "SEN" = "Africa", "SLB" = "Oceania", "SLE" = "Africa", "SLV" = "Americas", "SOM" = "Africa",
+  "SRB" = "Europe", "SSD" = "Africa", "SVK" = "Europe", "SWE" = "Europe", "SWZ" = "Africa",
+  "SYR" = "Asia", "TCD" = "Africa", "TGO" = "Africa", "THA" = "Asia", "TJK" = "Asia",
+  "TKM" = "Asia", "TLS" = "Asia", "TTO" = "Americas", "TUN" = "Africa", "TUR" = "Asia",
+  "TZA" = "Africa", "UGA" = "Africa", "UKR" = "Europe", "USA" = "Americas", "UZB" = "Asia",
+  "VEN" = "Americas", "VNM" = "Asia", "YEM" = "Asia", "ZAF" = "Africa", "ZMB" = "Africa",
+  "ZWE" = "Africa", "NA" = "none"  # Assign "none" for NA entries
+)
+
+# Create the continent_xS variable using the named vector
+xsub_data <- xsub_data %>%
+  mutate(continent_xS = recode(ISO, !!!iso_to_continent)) |> 
+  select(SOURCE, continent_xS, everything())
+
+# Print the first few rows to verify
+print("Panel data with continent_xS variable:")
+print(head(xsub_data))
+
+```
+
+
+
+## Europe
+
+```{r}
+panel_data_europe <- xsub_data |> 
+  filter(continent_xS == "Europe")
+```
+
+
+```{r}
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+average_conflict_europe <- panel_data_europe %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE))
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_europe_avg <- merge(priogrid, average_conflict_europe, by = "gid")
+
+```
+
+
+```{r}
+# Display all distinct years
+distinct_years <- xsub_data %>% select(YEAR) %>% distinct()
+```
+
+
+```{r}
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_europe <- panel_data_europe %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_europe_avg <- merge(priogrid, average_conflict_europe, by = "gid")
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot <- ggplot(data = st_as_sf(map_europe_avg)) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): Europe", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = st_crs(3035))  # European projection
+
+# Save the plot as PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_europe_log_scale.pdf", plot, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot)
+```
+
+## Africa
+
+```{r}
+# Filter the panel data to include only Africa
+panel_data_africa <- xsub_data %>%
+  filter(continent_xS == "Africa")
+
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_africa <- panel_data_africa %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_africa_avg <- merge(priogrid, average_conflict_africa, by = "gid")
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot_africa <- ggplot(data = st_as_sf(map_africa_avg)) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): Africa", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    plot.title.position = "plot",
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = st_crs(3035))  # Suitable projection
+
+# Save the plot as a larger PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_africa_log_scale.pdf", plot_africa, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_africa)
+```
+
+## Asia
+
+```{r}
+# Filter the panel data to include only Africa
+panel_data_asia <- xsub_data %>%
+  filter(continent_xS == "Asia")
+
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_asia <- panel_data_asia %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_asia_avg <- merge(priogrid, average_conflict_asia, by = "gid")
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot_asia <- ggplot(data = st_as_sf(map_asia_avg)) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): Asia", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    plot.title.position = "plot",
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = "+proj=wintri")  # Suitable projection
+
+# Save the plot as a larger PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_asia_log_scale.pdf", plot_asia, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_asia)
+```
+
+## Americas
+
+```{r}
+# Filter the panel data to include only Americas
+panel_data_americas <- xsub_data %>%
+  filter(continent_xS == "Americas")
+
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_americas <- panel_data_americas %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_americas_avg <- merge(priogrid, average_conflict_americas, by = "gid")
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot_americas <- ggplot(data = map_americas_avg) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): Americas", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    plot.title.position = "plot",
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = st_crs(5070))  # Albers Equal-Area Conic projection using EPSG code
+
+# Save the plot as a larger PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_americas_log_scale.pdf", plot_americas, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_americas)
+```
+
+## Oceania
+
+```{r}
+# Filter the panel data to include only Oceania
+panel_data_oceania <- xsub_data %>%
+  filter(continent_xS == "Oceania")
+
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_oceania <- panel_data_oceania %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_oceania_avg <- merge(priogrid, average_conflict_oceania, by = "gid")
+
+# Apply the CRS to the merged data using the Pacific-centered Lambert Azimuthal Equal-Area projection
+map_oceania_avg <- st_transform(st_as_sf(map_oceania_avg), crs = "+proj=laea +lon_0=160 +lat_0=-10 +datum=WGS84 +units=m +no_defs")
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot_oceania <- ggplot(data = map_oceania_avg) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): Oceania", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    plot.title.position = "plot",
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = st_crs("+proj=laea +lon_0=160 +lat_0=-10 +datum=WGS84 +units=m +no_defs"))  # Pacific-centered Lambert Azimuthal Equal-Area projection
+
+# Save the plot as a larger PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_oceania_log_scale.pdf", plot_oceania, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_oceania)
+
+```
+
+## World Map
+
+```{r}
+# Calculate the average ACTION_ANY values across years for each grid cell (gid)
+# Add a smaller constant (0.1) to avoid taking the log of zero
+average_conflict_world <- xsub_data %>%
+  group_by(gid) %>%
+  summarize(avg_ACTION_ANY = mean(ACTION_ANY, na.rm = TRUE) + 0.1)
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_world_avg <- merge(priogrid, average_conflict_world, by = "gid")
+
+# Apply the CRS to the merged data using the Robinson projection (ESRI:54030)
+map_world_avg <- st_transform(st_as_sf(map_world_avg), crs = st_crs("ESRI:54030"))
+
+# Create the plot using ggplot2 with a log transformation and simplified breaks
+plot_world <- ggplot(data = map_world_avg) +
+  geom_sf(aes(fill = avg_ACTION_ANY), color = NA) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    trans = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = c("0", "1", "10", "100", "1000")
+  ) +
+  labs(title = "Average Conflict In Cells (1994-2014): World", fill = "Average Action (ANY) Count (Log Scale)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 30),
+    plot.title.position = "plot",
+    legend.position = "right",
+    legend.text = element_text(size = 22),
+    legend.title = element_text(size = 24),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = st_crs("ESRI:54030"))  # Robinson projection using ESRI code
+
+# Save the plot as a larger PDF with specified dimensions and resolution
+ggsave("average_conflict_counts_world_log_scale.pdf", plot_world, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_world)
+
+```
+
+# Create Summary Table For xSub Data
+
+```{r}
+library(dplyr)
+library(haven)
+library(here)
+library(knitr)
+library(kableExtra)
+library(stringr)
+
+summary_table_xsub <- xsub_data %>%
+  select(continent_xS, NAME_0, gid, YEAR) %>%
+  group_by(continent_xS, NAME_0) %>%
+  summarize(
+    `Distinct Prio-Grid Cells` = n_distinct(gid),
+    `Years Covered` = paste(min(YEAR), "-", max(YEAR)),
+    .groups = 'drop'
+  )
+# Calculate totals
+total_countries <- n_distinct(summary_table_xsub$NAME_0)
+total_priogrid_cells <- sum(summary_table_xsub$`Distinct Prio-Grid Cells`)
+
+# Add the total row
+summary_table_xsub <- summary_table_xsub %>%
+  bind_rows(tibble(
+    continent_xS = "Total",
+    NAME_0 = "Total",
+    `Distinct Prio-Grid Cells` = total_priogrid_cells,
+    `Years Covered` = ""
+  ))
+
+# Convert the summary table to LaTeX format
+latex_table_xsub <- kable(summary_table_xsub, format = "latex", booktabs = TRUE, longtable = TRUE, 
+                          caption = "Summary of Distinct PRIO-GRID Cells and Years by Country and Continent",
+                          col.names = c("Continent", "Country", "Distinct Prio-Grid Cells", "Years Covered")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "repeat_header")) %>%
+  pack_rows(index = table(summary_table_xsub$continent_xS)) %>%
+  kable_styling(font_size = 8)  # Reduce the font size
+
+# Define the file path using the here package
+tex_file_xsub <- here::here("RTables", "summary_table_continent_country_priogrid_years_xsub.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_table_xsub, tex_file_xsub)
+
+```
+# Use World Shape File
+
+```{r}
+library(dplyr)
+library(haven)
+library(here)
+library(knitr)
+library(kableExtra)
+library(stringr)
+
+# Create a summary table with distinct PRIO-GRID cells and year range for each country, grouped by continent
+summary_table_xsub <- merged_data_xsub %>%
+  select(continent, NAME_0, gid, YEAR) %>%
+  mutate(NAME_0 = str_to_title(NAME_0)) %>%
+  group_by(continent, NAME_0) %>%
+  summarize(
+    `Distinct Prio-Grid Cells` = n_distinct(gid),
+    `Years Covered` = paste(min(YEAR), "-", max(YEAR)),
+    .groups = 'drop'
+  )
+
+# Convert the summary table to LaTeX format
+latex_table_xsub <- kable(summary_table_xsub, format = "latex", booktabs = TRUE, longtable = TRUE, 
+                          caption = "Summary of Distinct PRIO-GRID Cells and Years by Country and Continent",
+                          col.names = c("Continent", "Country", "Distinct Prio-Grid Cells", "Years Covered")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "repeat_header")) %>%
+  pack_rows(index = table(summary_table_xsub$continent)) %>%
+  kable_styling(font_size = 8)  # Reduce the font size
+
+# Define the file path using the here package
+tex_file_xsub <- here::here("RTables", "summary_table_continent_country_priogrid_years_xsub.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_table_xsub, tex_file_xsub)
+
+```
+
+```{r}
+# Show rows that have continent Antarctica
+merged_data_xsub %>%
+  filter(continent == "Antarctica")
+```
+

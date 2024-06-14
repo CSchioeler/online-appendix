@@ -1,0 +1,421 @@
+---
+title: "Merged Data Visualisations"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# Clear and free up space
+rm(list = ls())
+gc()
+
+library(dplyr)
+library(haven)
+library(here)
+library(knitr)
+library(kableExtra)
+library(stringr)
+library(sf)
+library(ggplot2)
+library(viridis)
+```
+
+```{r}
+# Import the data - go back one directory in here
+data <- read_dta(here("..", "Stata Regressions", "code_tables_results", "Data", "matched_grd_xsub_withlags.dta")) 
+
+data <- data |> 
+  rename(continent_grd = continent)
+```
+
+```{r}
+# Create the summary table for distinct counts
+summary_counts <- data %>%
+  summarise(
+    `Number of Distinct Countries` = n_distinct(country),
+    `Number of Distinct Prio-Grid Cells` = n_distinct(gid)
+  )
+
+# Convert the summary table to LaTeX format
+latex_summary_counts <- summary_counts %>%
+  kable("latex", booktabs = TRUE, caption = "Summary of Distinct Countries and PRIO-GRID Cells \\label{tab:summary_counts}") %>%
+  kable_styling(latex_options = c("hold_position"))
+
+# Print the table to check the output in the console
+print(latex_summary_counts)
+
+# Define the file path using the here package
+tex_file_summary_counts <- here::here("RTables", "summary_counts_table.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_summary_counts, tex_file_summary_counts)
+```
+
+```{r}
+# Load the PRIO grid cell shapefile
+priogrid <- st_read(here("Data", "PRIO Shape Files", "priogrid_cell.shp"))
+
+# Load the world administrative boundaries shapefile
+world <- st_read(here("Data", "PRIO Shape Files", "world-administrative-boundaries.shp"))
+
+# Select specific columns from the world shapefile including geometry
+world_selected <- world %>%
+  select(iso3, color_code, continent, region, geometry)
+
+```
+
+```{r}
+# Merge the selected columns from the world shapefile with the merged data using the ISO and iso3 columns
+merged_data <- data %>%
+  left_join(world_selected, by = c("ISO_xS" = "iso3"), relationship = "many-to-many")
+
+
+```
+
+## Europe
+
+```{r}
+panel_data_europe <- merged_data |> 
+  filter(continent == "Europe")
+```
+
+```{r}
+# Calculate the average lootability_proportion values across years for each grid cell (gid)
+average_lootprop_europe <- panel_data_europe %>%
+  group_by(gid) %>%
+  summarize(avg_loot_prop = mean(lootability_proportion, na.rm = TRUE))
+
+# Merge PRIO-GRID shapefile with the aggregated data
+map_europe_avg <- merge(priogrid, average_lootprop_europe, by = "gid")
+```
+
+```{r}
+# Handle NA values
+map_europe_avg <- map_europe_avg %>%
+  mutate(avg_loot_prop = ifelse(is.na(avg_loot_prop), 0, avg_loot_prop))
+
+# Create the plot using ggplot2
+plot_europe <- ggplot(data = st_as_sf(map_europe_avg)) +
+  geom_sf(aes(fill = avg_loot_prop), color = NA) +
+  scale_fill_viridis_c(
+    option = "viridis",
+    na.value = "grey",
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.2),
+    labels = scales::percent
+  ) +
+  labs(title = "Average Lootability Proportion in PRIO-GRID Cells - Europe",
+       fill = "Lootability Proportion") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    legend.position = "right",
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  coord_sf(crs = "+proj=laea +lon_0=10 +lat_0=50 +datum=WGS84 +units=m +no_defs")
+
+# Save the plot as a PDF
+ggsave("avg_lootability_proportion_map_europe.pdf", plot_europe, width = 20, height = 12, units = "in")
+
+# Print the plot
+print(plot_europe)
+
+
+```
+
+
+```{r}
+create_lootability_map <- function(continent_name, projection_crs) {
+  # Filter the merged data for the specified continent
+  if (continent_name == "World") {
+    continent_data <- merged_data
+  } else {
+    continent_data <- merged_data %>%
+      filter(continent == continent_name)
+  }
+  
+  # Calculate the average lootability_proportion values across years for each grid cell (gid)
+  average_lootprop <- continent_data %>%
+    group_by(gid) %>%
+    summarize(avg_loot_prop = mean(lootability_proportion, na.rm = TRUE))
+  
+  # Merge PRIO-GRID shapefile with the aggregated data
+  map_avg <- merge(priogrid, average_lootprop, by = "gid")
+  
+  # Handle NA values
+  map_avg <- map_avg %>%
+    mutate(avg_loot_prop = ifelse(is.na(avg_loot_prop), NA, avg_loot_prop))
+  
+  # Transform the data to the specified projection
+  map_avg <- st_transform(st_as_sf(map_avg), crs = projection_crs)
+  
+  # Create the plot
+  plot <- ggplot(data = map_avg) +
+    geom_sf(aes(fill = avg_loot_prop), color = NA) +
+    scale_fill_viridis_c(
+      option = "viridis",
+      na.value = "grey",
+      limits = c(0, 1),
+      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+      labels = c("0%", "20%", "40%", "60%", "80%", "100%")
+    ) +
+    labs(title = paste("Average Lootability Proportion in PRIO-GRID Cells (1994-2014):", continent_name),
+         fill = "Lootability Proportion") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 30),
+      legend.position = "right",
+      legend.text = element_text(size = 20),
+      legend.title = element_text(size = 24),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    ) +
+    coord_sf(crs = projection_crs)
+  
+  # Save the plot as a PDF
+  ggsave(paste0("avg_lootability_proportion_map_", tolower(continent_name), ".pdf"), plot, width = 20, height = 12, units = "in")
+  
+  # Print the plot
+  print(plot)
+}
+
+# Define the projections for each continent
+projections <- list(
+  Africa = "+proj=laea +lon_0=20 +lat_0=-10 +datum=WGS84 +units=m +no_defs",
+  Americas = "+proj=laea +lon_0=-100 +lat_0=40 +datum=WGS84 +units=m +no_defs",
+  Asia = "+proj=laea +lon_0=100 +lat_0=40 +datum=WGS84 +units=m +no_defs",
+  Europe = "+proj=laea +lon_0=10 +lat_0=50 +datum=WGS84 +units=m +no_defs",
+  Oceania = "+proj=laea +lon_0=140 +lat_0=-25 +datum=WGS84 +units=m +no_defs",
+  World = "+proj=wintri +datum=WGS84 +units=m +no_defs"
+)
+
+```
+
+```{r}
+# Create maps for each continent and the world
+for (continent in names(projections)) {
+  create_lootability_map(continent, projections[[continent]])
+}
+```
+## Create Summary
+
+```{r}
+# Define the manual mapping of ISO codes to continents
+iso_to_continent <- c(
+  "ZAF" = "Africa", "BRA" = "Americas", "LSO_ZAF" = "Africa", "LSO" = "Africa",
+  "NAM_ZAF" = "Africa", "NAM" = "Africa", "PRY" = "Americas",
+  "SWZ_ZAF" = "Africa", "BWA_ZAF" = "Africa", "SWZ" = "Africa", "MOZ_SWZ_ZAF" = "Africa",
+  "MOZ_ZAF" = "Africa", "BWA" = "Africa", "MOZ_SWZ" = "Africa", "MOZ" = "Africa",
+  "BRA_PRY" = "Americas", "MDG" = "Africa", "BWA_NAM_ZAF" = "Africa", "BWA_NAM" = "Africa",
+  "BOL" = "Americas", "BOL_PRY" = "Americas", "BWA_ZAF_ZWE" = "Africa", "ZAF_ZWE" = "Africa",
+  "MOZ_ZAF_ZWE" = "Africa", "MOZ_ZWE" = "Africa", "BWA_ZWE" = "Africa", "ZWE" = "Africa",
+  "MUS" = "Africa", "BOL_BRA_PRY" = "Americas", "BOL_BRA" = "Americas", "PER" = "Americas",
+  "AGO_BWA_NAM" = "Africa", "BWA_ZMB_ZWE" = "Africa", "ZMB_ZWE" = "Africa", "BOL_PER" = "Americas",
+  "AGO_NAM" = "Africa", "AGO_BWA_NAM_ZMB" = "Africa", "NAM_ZMB" = "Africa", "BWA_NAM_ZMB" = "Africa",
+  "BWA_NAM_ZMB_ZWE" = "Africa", "AGO" = "Africa", "AGO_ZMB" = "Africa", "ZMB" = "Africa",
+  "MOZ_MWI" = "Africa", "MOZ_ZMB_ZWE" = "Africa", "MWI" = "Africa", "MOZ_ZMB" = "Africa",
+  "MOZ_MWI_ZMB" = "Africa", "MWI_ZMB" = "Africa", "COD_ZMB" = "Africa", "COD" = "Africa",
+  "MOZ_MWI_TZA" = "Africa", "MOZ_TZA" = "Africa", "BRA_PER" = "Americas", "BOL_BRA_PER" = "Americas",
+  "AGO_COD" = "Africa", "AGO_COD_ZMB" = "Africa", "MWI_TZA" = "Africa", "TZA" = "Africa",
+  "IDN" = "Asia", "MWI_TZA_ZMB" = "Africa", "IDN_TLS" = "Asia", "TZA_ZMB" = "Africa",
+  "AGO_NA" = "Africa", "COD_TZA_ZMB" = "Africa", "COD_TZA" = "Africa", "IDN_PNG" = "Oceania",
+  "ECU_PER" = "Americas", "COG" = "Africa", "AGO_COD_COG" = "Africa", "AGO_COG" = "Africa",
+  "COD_COG" = "Africa", "KEN_TZA" = "Africa", "ECU" = "Americas", "BRA_COL_PER" = "Americas",
+  "BDI_COD_TZA" = "Africa", "BDI_TZA" = "Africa", "KEN" = "Africa", "COL_PER" = "Americas",
+  "BRA_COL" = "Americas", "GAB" = "Africa", "COG_GAB" = "Africa", "BDI_COD" = "Africa",
+  "BDI" = "Africa", "COD_RWA" = "Africa", "BDI_COD_RWA" = "Africa", "BDI_RWA" = "Africa",
+  "BDI_RWA_TZA" = "Africa", "COL" = "Americas", "RWA" = "Africa", "RWA_TZA" = "Africa",
+  "KEN_SOM" = "Africa", "COD_RWA_UGA" = "Africa", "RWA_TZA_UGA" = "Africa", "TZA_UGA" = "Africa",
+  "COD_UGA" = "Africa", "UGA" = "Africa", "KEN_TZA_UGA" = "Africa", "SOM" = "Africa",
+  "COL_ECU_PER" = "Americas", "KEN_UGA" = "Africa", "COL_ECU" = "Americas", "BRA_VEN" = "Americas",
+  "GAB_GNQ" = "Africa", "IDN_MYS" = "Asia", "BRA_COL_VEN" = "Americas", "VEN" = "Americas",
+  "BRA_GUY" = "Americas", "GNQ" = "Africa", "COL_VEN" = "Americas", "GUY" = "Americas",
+  "CMR_COG" = "Africa", "MYS" = "Asia", "CMR" = "Africa", "CMR_GNQ" = "Africa",
+  "CMR_GAB" = "Africa", "CMR_GAB_GNQ" = "Africa", "CMR_COG_GAB" = "Africa", "CAF_CMR_COG" = "Africa",
+  "CAF_CMR" = "Africa", "CAF_COG" = "Africa", "CAF_COD_COG" = "Africa", "COD_SSD_UGA" = "Africa",
+  "ETH_KEN" = "Africa", "COD_SSD" = "Africa", "SSD_UGA" = "Africa", "ETH_KEN_SOM" = "Africa",
+  "CIV_LBR" = "Africa", "CIV" = "Africa", "NGA" = "Africa", "CAF_COD" = "Africa",
+  "SSD" = "Africa", "KEN_SSD_UGA" = "Africa", "ETH" = "Africa", "ETH_SOM" = "Africa",
+  "LBR" = "Africa", "CMR_NGA" = "Africa", "KEN_SSD" = "Africa", "ETH_KEN_SSD" = "Africa",
+  "BRA_GUY_VEN" = "Americas", "ETH_SSD" = "Africa", "PHL" = "Asia", "GUY_VEN" = "Americas",
+  "CAF" = "Africa", "CAF_SSD" = "Africa", "LKA" = "Asia", "THA" = "Asia",
+  "MYS_THA" = "Asia", "TGO" = "Africa", "BEN_TGO" = "Africa", "BEN" = "Africa",
+  "BEN_NGA" = "Africa", "MYS_PHL" = "Asia", "SLE" = "Africa", "LBR_SLE" = "Africa",
+  "IND" = "Asia", "PAN" = "Americas", "COL_PAN" = "Americas", "CAF_CMR_TCD" = "Africa",
+  "CAF_TCD" = "Africa", "CRI" = "Americas", "CRI_PAN" = "Americas", "CMR_TCD" = "Africa",
+  "TCD" = "Africa", "CAF_SDN" = "Africa", "CAF_SDN_SSD" = "Africa", "SDN" = "Africa",
+  "SDN_SSD" = "Africa", "VNM" = "Asia", "BFA_CIV" = "Africa", "ETH_SDN" = "Africa",
+  "ETH_SDN_SSD" = "Africa", "IND_LKA" = "Asia", "MMR_THA" = "Asia", "CIV_MLI" = "Africa",
+  "BFA_CIV_MLI" = "Africa", "BFA" = "Africa", "MMR" = "Asia", "KHM" = "Asia",
+  "KHM_VNM" = "Asia", "CRI_NIC" = "Americas", "NIC" = "Americas", "GNB" = "Africa",
+  "MLI" = "Africa", "BFA_MLI" = "Africa", "BFA_TGO" = "Africa", "BEN_BFA_TGO" = "Africa",
+  "DJI_ETH" = "Africa", "DJI_ETH_SOM" = "Africa", "BEN_BFA" = "Africa", "CAF_SDN_TCD" = "Africa",
+  "DJI_SOM" = "Africa", "BEN_BFA_NER" = "Africa", "BEN_NER" = "Africa", "BEN_NER_NGA" = "Africa",
+  "SDN_TCD" = "Africa", "DJI" = "Africa", "KHM_THA" = "Asia", "GNB_SEN" = "Africa",
+  "SEN" = "Africa", "MLI_SEN" = "Africa", "NER_NGA" = "Africa", "CMR_NGA_TCD" = "Africa",
+  "DJI_ERI_ETH" = "Africa", "DJI_ERI" = "Africa", "YEM" = "Asia", "HND_NIC" = "Americas",
+  "BFA_NER" = "Africa", "NER" = "Africa", "ERI_ETH" = "Africa", "DJI_ERI_YEM" = "Africa",
+  "SLV" = "Americas", "HND_NIC_SLV" = "Americas", "GMB_SEN" = "Africa", "NGA_TCD" = "Africa",
+  "ERI" = "Africa", "ERI_YEM" = "Africa", "GTM" = "Americas", "GTM_SLV" = "Americas",
+  "HND_SLV" = "Americas", "HND" = "Americas", "NER_NGA_TCD" = "Africa", "KHM_LAO" = "Asia",
+  "GTM_HND_SLV" = "Americas", "NER_TCD" = "Africa", "ERI_ETH_SDN" = "Africa", "KHM_LAO_THA" = "Asia",
+  "KHM_LAO_VNM" = "Asia", "MEX" = "Americas", "GTM_MEX" = "Americas", "GTM_HND" = "Americas",
+  "MLI_MRT_SEN" = "Africa", "MLI_MRT" = "Africa", "BFA_MLI_NER" = "Africa", "MLI_NER" = "Africa",
+  "ERI_SDN" = "Africa", "LAO_THA" = "Asia", "MRT_SEN" = "Africa", "LAO" = "Asia",
+  "LAO_VNM" = "Asia", "BLZ_GTM" = "Americas", "MRT" = "Africa", "BLZ" = "Americas",
+  "BLZ_HND" = "Americas", "SAU_YEM" = "Asia", "SAU" = "Asia", "OMN_YEM" = "Asia",
+  "OMN" = "Asia", "BLZ_GTM_MEX" = "Americas", "BLZ_MEX" = "Americas", "JAM" = "Americas",
+  "DOM" = "Americas", "DOM_HTI" = "Americas", "CHN" = "Asia", "DZA_MLI" = "Africa",
+  "NA_SAU_YEM" = "Asia", "OMN_SAU_YEM" = "Asia", "DZA_MLI_NER" = "Africa", "DZA_NER" = "Africa",
+  "OMN_SAU" = "Asia", "CUB" = "Americas", "DZA" = "Africa", "LBY_TCD" = "Africa",
+  "LBY_SDN_TCD" = "Africa", "NA_SDN" = "Africa", "CUB_HTI" = "Americas", "HTI" = "Americas",
+  "LBY" = "Africa", "LBY_NA" = "Africa", "LBY_SDN" = "Africa", "LAO_MMR_THA" = "Asia",
+  "BGD_MMR" = "Asia", "LAO_MMR" = "Asia", "BGD" = "Asia", "CHN_MMR" = "Asia",
+  "CHN_LAO_MMR" = "Asia", "CHN_LAO" = "Asia", "CHN_VNM" = "Asia", "EGY_LBY_SDN" = "Africa",
+  "EGY_SDN" = "Africa", "BGD_IND" = "Asia", "BGD_IND_MMR" = "Asia", "IND_MMR" = "Asia",
+  "EGY_LBY" = "Africa", "EGY" = "Africa", "ARE_SAU" = "Asia", "ARE_OMN_SAU" = "Asia",
+  "CHN_LAO_VNM" = "Asia", "BHS" = "Americas", "LBY_NER" = "Africa", "LBY_NER_TCD" = "Africa",
+  "ARE" = "Asia", "ARE_OMN" = "Asia", "DZA_LBY_NER" = "Africa", "PAK" = "Asia",
+  "IND_PAK" = "Asia", "DZA_LBY" = "Africa", "QAT_SAU" = "Asia", "ARE_QAT_SAU" = "Asia",
+  "MLI_NA" = "Africa", "DZA_MLI_MRT" = "Africa", "NA_MRT" = "Africa", "DZA_NA_MRT" = "Africa",
+  "QAT" = "Asia", "IRN" = "Asia", "IRN_PAK" = "Asia", "MEX_USA" = "Americas",
+  "DZA_MRT" = "Africa", "BHR_SAU" = "Asia", "BHR" = "Asia", "BHR_QAT" = "Asia",
+  "IND_NPL" = "Asia", "BGD_IND_NPL" = "Asia", "IRN_OMN" = "Asia", "NPL" = "Asia",
+  "BGD_BTN_IND" = "Asia", "BTN_IND" = "Asia", "CHN_IND" = "Asia", "BTN_CHN_IND" = "Asia",
+  "BTN_CHN" = "Asia", "BTN" = "Asia", "MAR" = "Africa", "DZA_MAR" = "Africa",
+  "EGY_SAU" = "Asia", "CHN_NPL" = "Asia", "CHN_IND_NPL" = "Asia", "CHN_IND_MMR" = "Asia",
+  "IRQ_SAU" = "Asia", "KWT_SAU" = "Asia", "EGY_ISR_JOR_SAU" = "Asia", "JOR_SAU" = "Asia",
+  "IRQ_KWT_SAU" = "Asia", "KWT" = "Asia", "AFG_PAK" = "Asia", "EGY_ISR_JOR" = "Asia",
+  "ISR_JOR" = "Asia", "JOR" = "Asia", "IRQ" = "Asia", "IRQ_KWT" = "Asia",
+  "IRN_IRQ_KWT" = "Asia", "IRN_IRQ" = "Asia", "AFG_IRN_PAK" = "Asia", "AFG" = "Asia",
+  "DZA_LBY_TUN" = "Africa", "LBY_TUN" = "Africa", "EGY_ISR" = "Asia", "AFG_IRN" = "Asia",
+  "DZA_TUN" = "Africa", "TUN" = "Africa", "EGY_ISR_PSE" = "Asia", "ISR" = "Asia",
+  "ISR_PSE" = "Asia", "ISR_JOR_PSE" = "Asia", "JOR_PSE" = "Asia", "JOR_SYR" = "Asia",
+  "IRQ_JOR_SAU" = "Asia", "ISR_JOR_SYR" = "Asia", "SYR" = "Asia", "IRQ_JOR" = "Asia",
+  "ISR_LBN" = "Asia", "ISR_LBN_SYR" = "Asia", "IRQ_JOR_SYR" = "Asia", "IRQ_SYR" = "Asia",
+  "LBN" = "Asia", "LBN_SYR" = "Asia", "ESP_MAR" = "Africa", "DZA_ESP_MAR" = "Africa",
+  "AFG_IRN_TKM" = "Asia", "AFG_TKM" = "Asia", "CHN_IND_PAK" = "Asia", "TUR" = "Asia",
+  "SYR_TUR" = "Asia", "CHN_PAK" = "Asia", "ITA_TUN" = "Africa", "GRC_TUR" = "Europe",
+  "IRQ_TUR" = "Asia", "IRN_TKM" = "Asia", "AFG_TJK" = "Asia", "AFG_PAK_TJK" = "Asia",
+  "AFG_CHN_PAK" = "Asia", "IRQ_SYR_TUR" = "Asia", "IRN_IRQ_TUR" = "Asia", "AFG_TKM_UZB" = "Asia",
+  "AFG_UZB" = "Asia", "AFG_TJK_UZB" = "Asia", "AFG_CHN_TJK" = "Asia", "AFG_CHN_PAK_TJK" = "Asia",
+  "CHN_PAK_TJK" = "Asia", "IRN_TUR" = "Asia", "TJK_UZB" = "Asia", "TJK" = "Asia",
+  "CHN_TJK" = "Asia", "AZE_IRN" = "Asia", "ARM_AZE_IRN" = "Asia", "ARM_AZE" = "Asia",
+  "KGZ_TJK" = "Asia", "CHN_KGZ_TJK" = "Asia", "ALB" = "Europe", "ALB_GRC" = "Europe",
+  "ARM_IRN_TUR" = "Asia", "ARM_AZE_IRN_TUR" = "Asia", "KGZ_TJK_UZB" = "Asia", "KGZ" = "Asia",
+  "CHN_KGZ" = "Asia", "ARM_TUR" = "Asia", "ARM" = "Asia", "NA_TJK_UZB" = "Asia",
+  "KGZ_UZB" = "Asia", "ALB_MKD" = "Europe", "ALB_GRC_MKD" = "Europe", "KAZ_UZB" = "Asia",
+  "AZE_RUS" = "Europe", "FRA" = "Europe", "BGR_TUR" = "Europe", "BGR_GRC_TUR" = "Europe",
+  "RUS" = "Europe", "KAZ_TKM" = "Asia", "KAZ" = "Asia", "KAZ_KGZ_UZB" = "Asia",
+  "KAZ_KGZ" = "Asia", "CHN_KAZ_KGZ" = "Asia", "CHN_RUS" = "Asia", "ESP_FRA" = "Europe",
+  "CHN_KAZ" = "Asia", "FRA_ITA" = "Europe", "RUS_UKR" = "Europe", "MDA_ROU_UKR" = "Europe",
+  "JPN_RUS" = "Asia", "CHE_FRA" = "Europe", "MDA_ROU" = "Europe", "MDA_UKR" = "Europe",
+  "KAZ_RUS" = "Asia", "MDA" = "Europe", "DEU_FRA" = "Europe", "BEL_FRA" = "Europe",
+  "UKR" = "Europe", "SVK_UKR" = "Europe", "CHN_KAZ_RUS" = "Asia", "SVK" = "Europe",
+  "DEU" = "Europe", "BLR" = "Europe", "BLR_RUS_UKR" = "Europe", "BLR_RUS" = "Europe",
+  "LTU" = "Europe", "LTU_RUS" = "Europe", "BLR_LVA_RUS" = "Europe", "LVA_RUS" = "Europe",
+  "FIN_RUS" = "Europe", "NOR_RUS" = "Europe"
+)
+
+# Create the continent_xS variable using the named vector
+merged_data <- merged_data %>%
+  mutate(continent_xS = recode(ISO_xS, !!!iso_to_continent)) |> 
+  select(continent_xS, everything())
+
+```
+
+# New Summary Table
+
+
+```{r}
+# Assuming `merged_data` already has the necessary columns
+summary_table <- merged_data %>%
+  select(country, gid, year, lootability_proportion) %>%
+  mutate(country = str_to_title(country)) %>%
+  group_by(country) %>%
+  summarize(
+    `Distinct Prio-Grid Cells` = n_distinct(gid),
+    `Years Covered` = paste(min(year), "-", max(year)),
+    `Avg Lootability Proportion` = mean(lootability_proportion, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# Convert the summary table to LaTeX format
+latex_table <- kable(summary_table, format = "latex", booktabs = TRUE, longtable = TRUE, 
+                     caption = "Summary of Distinct PRIO-GRID Cells, Years, and Average Lootability Proportion by Country",
+                     col.names = c("Country", "Distinct Prio-Grid Cells", "Years Covered", "Avg Lootability Proportion")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "repeat_header")) %>%
+  column_spec(1, width = "3cm") %>%  # Adjust the width of the Country column
+  column_spec(2, width = "2.5cm") %>%  # Adjust the width of the Distinct Prio-Grid Cells column
+  column_spec(3, width = "2.5cm") %>%  # Adjust the width of the Years Covered column
+  column_spec(4, width = "3cm") %>%  # Adjust the width of the Avg Lootability Proportion column
+  kable_styling(font_size = 8)  # Reduce the font size
+
+# Define the file path using the here package
+tex_file <- here::here("RTables", "summary_table_country_priogrid_years_lootability.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_table, tex_file)
+```
+
+
+
+```{r}
+# Print distinct ISO_xS values
+distinct_colorcode <- merged_data |> 
+  select(color_code) |> 
+  distinct() |> 
+  pull(color_code)
+
+print(distinct_colorcode)
+```
+```{r}
+# Rename columns if necessary
+data <- data %>% rename(continent_grd = continent, country = ISO_xS)
+
+# Create the continent_xS variable by extracting unique continent data from the country codes
+data <- data %>%
+  mutate(continent_xS = case_when(
+    str_detect(country, "AFG|ARM|AZE|BGD|BTN|CHN|GEO|IDN|IND|IRN|IRQ|ISR|JPN|JOR|KAZ|KGZ|KHM|KOR|KWT|LAO|LBN|LKA|MDV|MMR|MNG|MYS|NPL|OMN|PAK|PHL|PRK|PSE|QAT|SAU|SGP|SYR|TJK|TKM|TLS|TUR|UZB|VNM|YEM") ~ "Asia",
+    str_detect(country, "DZA|AGO|BEN|BWA|BFA|BDI|CMR|CPV|CAF|TCD|COM|COG|CIV|COD|DJI|EGY|GNQ|ERI|SWZ|ETH|GAB|GMB|GHA|GIN|GNB|KEN|LSO|LBR|LBY|MDG|MWI|MLI|MRT|MUS|MAR|MOZ|NAM|NER|NGA|RWA|STP|SEN|SYC|SLE|SOM|ZAF|SSD|SDN|TZA|TGO|UGA|ZMB|ZWE") ~ "Africa",
+    str_detect(country, "ATG|ARG|BHS|BRB|BLZ|BOL|BRA|CAN|CHL|COL|CRI|CUB|DMA|DOM|ECU|SLV|GRD|GTM|GUY|HTI|HND|JAM|MEX|NIC|PAN|PRY|PER|KNA|LCA|VCT|SUR|TTO|USA|URY|VEN") ~ "Americas",
+    str_detect(country, "ALB|AND|AUT|BLR|BEL|BIH|BGR|HRV|CYP|CZE|DNK|EST|FIN|FRA|DEU|GRC|HUN|ISL|IRL|ITA|LVA|LIE|LTU|LUX|MLT|MDA|MCO|MNE|NLD|MKD|NOR|POL|PRT|ROU|RUS|SMR|SRB|SVK|SVN|ESP|SWE|CHE|UKR|GBR") ~ "Europe",
+    str_detect(country, "AUS|FJI|KIR|MHL|FSM|NRU|NZL|PLW|PNG|WSM|SLB|TON|TUV|VUT") ~ "Oceania",
+    TRUE ~ "none"
+  ))
+
+# Create a summary table with distinct PRIO-GRID cells and average lootability proportion for each country, grouped by continent
+summary_table <- data %>%
+  group_by(continent_xS, country) %>%
+  summarize(
+    `Distinct Prio-Grid Cells` = n_distinct(gid),
+    `Average Lootability Proportion` = mean(lootability_proportion, na.rm = TRUE),
+    `Years Covered` = paste(min(year), "-", max(year)),
+    .groups = 'drop'
+  )
+
+# Convert the summary table to LaTeX format
+latex_table <- kable(summary_table, format = "latex", booktabs = TRUE, longtable = TRUE, 
+                     caption = "Summary of Distinct PRIO-GRID Cells and Average Lootability Proportion by Country and Continent",
+                     col.names = c("Continent", "Country", "Distinct Prio-Grid Cells", "Average Lootability Proportion", "Years Covered")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "repeat_header")) %>%
+  column_spec(2, width = "3cm") %>%  # Adjust the width of the Country column
+  column_spec(3, width = "2.5cm") %>%  # Adjust the width of the Distinct Prio-Grid Cells column
+  column_spec(4, width = "2.5cm") %>%  # Adjust the width of the Average Lootability Proportion column
+  column_spec(5, width = "3cm") %>%  # Adjust the width of the Years Covered column
+  pack_rows(index = table(summary_table$continent_xS)) %>%
+  kable_styling(font_size = 8)  # Reduce the font size
+
+# Define the file path using the here package
+tex_file <- here::here("RTables", "summary_table_continent_country_priogrid_years_lootability.tex")
+
+# Write the LaTeX table to a file
+writeLines(latex_table, tex_file)
+```
+

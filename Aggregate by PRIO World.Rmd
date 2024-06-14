@@ -1,0 +1,647 @@
+---
+title: "Merge by PRIO"
+output: html_document
+date: "2024-04-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Aggregate by PRIO_GRID
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(here)
+library(haven)
+
+# Import the data
+grd <- read_dta(here("Data", "GRD Dataset", "dfhsw_GRD_public_v1.dta"))
+
+grd |> 
+  head()
+
+```
+
+
+## Filter for country and data range
+Now let's filter for world and the year range matching the conflict dataset. We also drop some irrelevant columns. I include 1994 to form the baseline lootability estimate (before sample period starting 1995). 1994 is the earliest year in the dataset for world.
+
+```{r}
+# Filter for world
+world_grd <- grd |> 
+  filter(year >= 1994 & year <= 2014)
+
+world_grd |>
+  head()
+```
+```{r}
+# First display how many unique values there are of gid
+unique_prio <- world_grd |> 
+  select(gid) |> 
+  distinct() |> 
+  nrow()
+
+print(paste("Unique prio values:", unique_prio))
+
+# Print the names of gid unique values
+unique_prio_names <- world_grd |> 
+  select(gid) |> 
+  distinct() |> 
+  pull()
+
+print(unique_prio_names)
+```
+```{r}
+# Check for duplicates
+world_grd |>
+  select(-obs_no) |>
+  duplicated() |>
+  sum()
+
+```
+
+```{r}
+# Step 1: Add an identifier for each group of duplicates (except for 'obs_no')
+resources_marked <- world_grd %>%
+  group_by(across(-obs_no)) %>% 
+  mutate(dup_id = row_number()) %>%
+  ungroup()
+
+# Step 2: Keep only the first of each set of duplicates
+world_filtered <- resources_marked %>%
+  filter(dup_id == 1) %>%
+  select(-dup_id)  # Removing the temporary 'dup_id' column
+
+# Optional: Check the new size of the dataset
+print(paste("New dataset size:", nrow(world_filtered)))
+```
+
+# Aggregate prio-year pairs to one row
+```{r}
+# Count the number of PRIO_GID-year pairs for each resource type
+duplicates_count <- world_filtered %>%
+  group_by(gid, year, resource) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Display the counts of duplicates
+print(duplicates_count)
+
+# Optionally, to see the total number of duplicates
+total_duplicates <- sum(duplicates_count$count) - nrow(duplicates_count)
+print(paste("Total number of duplicate observations:", total_duplicates))
+```
+We should expect to remove 18638 observations
+
+```{r}
+# Define lists of columns based on their aggregation rule
+sum_columns <- c("annuallocationcapacity", "comtrade_value", "wb_value", "usgs_value", "multicolour_value",
+                 "world_val_nomc", "world_val_withmc", "wd_annual_value_location1", "wd_annual_value_location2",
+                 "exp_annual_value_location1", "exp_annual_value_location2")
+
+# Define a custom summarise function for non-sum columns
+concat_if_different <- function(x) {
+  unique_x <- unique(x)
+  if(length(unique_x) == 1) {
+    return(as.character(unique_x))
+  } else {
+    return(paste(unique_x, collapse = "; "))
+  }
+}
+
+world_aggregated <- world_filtered %>%
+  group_by(gid, year, resource) %>%
+  summarise(across(all_of(sum_columns), sum, na.rm = TRUE), # Sum the defined columns
+            across(-all_of(sum_columns), concat_if_different), # Concatenate if different for the rest
+            .groups = 'drop') # Prevents the result from being grouped
+
+```
+
+## Verify same-resource aggregation
+Let's check if the aggregation was successful.
+
+```{r}
+# Check if the aggregation was successful
+duplicates_after_aggregation <- world_aggregated %>%
+  group_by(gid, year, resource) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  filter(count > 1)
+
+# Check if there are any duplicates left
+if (nrow(duplicates_after_aggregation) > 0) {
+  print("There are remaining duplicates after aggregation.")
+} else {
+  print("No duplicates remain after aggregation. Aggregation was successful.")
+}
+
+```
+# Aggregate prio-year pairs to one row (different resource types)
+Now we aggregate the rows with the same gid and year but different resources. We will keep the resource-invariant variables as they are and create new variables for the resource-variant variables by reshaping the data.
+
+
+Now let's aggregate the data. 
+```{r}
+columns_to_reshape <- setdiff(names(world_aggregated), c("gid", "year"))
+
+# Pivot the dataset to wide format
+world_wide <- world_aggregated %>%
+  pivot_wider(names_from = resource, names_prefix = "res_", 
+              values_from = all_of(columns_to_reshape),
+              values_fill = list(value = NA)) # Fill missing values with NA
+
+# Note: The values_fill argument is set to fill with NA for simplicity, 
+# adjust as needed based on your specific requirements
+
+# Print the result to check
+print(world_wide)
+
+# Count the final number of columns to verify
+final_num_columns <- ncol(world_wide)
+print(paste("Final number of columns:", final_num_columns))
+```
+
+
+```{r}
+# --- Step 1: Verify Initial Conditions Before Reshaping ---
+# Count unique gid-year combinations in the aggregated data
+unique_gid_year_combinations <- nrow(distinct(world_aggregated, gid, year))
+
+# Calculate the expected number of columns after reshaping
+num_unique_resources <- length(unique(world_aggregated$resource))
+columns_to_reshape <- setdiff(names(world_aggregated), c("gid", "year"))
+expected_columns_after_reshaping <- 2 + (num_unique_resources * length(columns_to_reshape))
+
+# --- Reshaping (already provided) ---
+world_wide <- world_aggregated %>%
+  pivot_wider(names_from = resource, names_prefix = "res_", 
+              values_from = all_of(columns_to_reshape),
+              values_fill = list(value = NA))
+
+# --- Step 3: Verification after Reshaping ---
+# Verify number of rows matches unique gid-year combinations
+actual_rows_reshaped <- nrow(world_wide)
+if (actual_rows_reshaped == unique_gid_year_combinations) {
+  print("Rows verification passed: Each observation has a unique gid-year pair.")
+} else {
+  print("Rows verification failed: Mismatch in expected and actual number of unique gid-year pairs.")
+}
+
+# Verify the number of columns
+actual_columns_reshaped <- ncol(world_wide)
+if (actual_columns_reshaped == expected_columns_after_reshaping) {
+  print("Columns verification passed: The number of columns matches the expected number after reshaping.")
+} else {
+  print(paste("Columns verification failed: Expected", expected_columns_after_reshaping, "columns, but found", actual_columns_reshaped, "columns."))
+}
+
+# Check for uniqueness of gid-year pairs in the reshaped dataset
+unique_pairs_post_reshape <- world_wide %>%
+  distinct(gid, year) %>%
+  nrow()
+if (unique_pairs_post_reshape == actual_rows_reshaped) {
+  print("Post-reshaping verification passed: Each gid-year pair is unique in the reshaped dataset.")
+} else {
+  print("Post-reshaping verification failed: Some gid-year pairs may not be unique.")
+}
+
+```
+
+Create lootability measure
+
+```{r}
+library(dplyr)
+
+# Find all lootable flag columns
+lootable_flags <- names(world_wide)[grepl("^lootable_", names(world_wide))]
+
+# Assuming lootable_flags are defined, as well as the corresponding world_value_columns
+world_value_columns <- gsub("lootable_", "wd_annual_value_location1_", lootable_flags)
+
+# Convert the data frame to a tibble for better handling in dplyr
+world_wide <- as_tibble(world_wide)
+
+# Create a new dataframe to store the results
+aggregate_lootability <- tibble(gid = character(), year = integer(), total_lootable_value = numeric())
+
+# Loop through each lootable resource and perform aggregation
+for (i in seq_along(lootable_flags)) {
+    lootable_col <- lootable_flags[i]
+    value_col <- world_value_columns[i]
+
+    # Check if the current value column exists in the dataframe
+    if (value_col %in% names(world_wide)) {
+        # Filter and aggregate using dplyr
+        temp_agg <- world_wide %>%
+            filter(!!sym(lootable_col) == 1) %>%  # Filter for lootable resources
+            group_by(gid, year) %>%
+            summarise(
+                lootable_value = sum(!!sym(value_col), na.rm = TRUE),
+                .groups = 'drop'
+            ) %>%
+            rename(total_lootable_value = lootable_value)  # Rename to a common column for easier merging
+
+        # Merge or bind rows with the main aggregate dataframe
+        if (nrow(aggregate_lootability) == 0) {
+            aggregate_lootability <- temp_agg
+        } else {
+            # If already initialized, merge the new data
+            aggregate_lootability <- full_join(aggregate_lootability, temp_agg, by = c("gid", "year")) %>%
+                rowwise() %>%
+                mutate(total_lootable_value = sum(c_across(starts_with("total_lootable_value")), na.rm = TRUE)) %>%
+                select(gid, year, total_lootable_value)
+        }
+    }
+}
+
+# Join the aggregated lootability data back to the main dataframe
+world_wide <- left_join(world_wide, aggregate_lootability, by = c("gid", "year"))
+
+# Replace NA values with zero in the lootability column
+world_wide$total_lootable_value <- replace_na(world_wide$total_lootable_value, 0)
+
+# Check the results
+print(head(world_wide))
+
+
+```
+
+
+Now, normalise lootability measure by dividing by total value of production of all resources in that year. Calculate lootability measure with world_value_location1 columns
+
+```{r}
+world_wide <- world_wide %>%
+  # Convert to tibble if not already
+  as_tibble() %>%
+  # Calculate the total value of all world value columns
+  mutate(total_value = rowSums(select(., all_of(world_value_columns)), na.rm = TRUE)) %>%
+  # Use the previously created total_lootable_value to calculate lootability proportion
+  mutate(lootability_proportion = case_when(
+    total_value > 0 ~ total_lootable_value / total_value,
+    TRUE ~ 0  # Avoid division by zero by setting proportion to 0 when total_value is 0
+  ))
+
+# Print head
+print(head(world_wide))
+```
+Let's save it as a csv and dta file
+
+```{r}
+# Save as CSV
+write_csv(world_wide, here("Data", "GRD Dataset", "world_wide_data.csv"))
+```
+
+```{r}
+# Save total_value, total_lootable_value and lootability_proportion as a csv and dta file
+world_lootablecols <- world_wide %>%
+  select(gid, year, total_value, total_lootable_value, lootability_proportion)
+
+# Save as CSV
+write_csv(world_lootablecols, here("Data", "GRD Dataset", "world_lootablecols.csv"))
+
+# Save as DTA
+write_dta(world_lootablecols, here("Data", "GRD Dataset", "world_lootablecols.dta"))
+
+```
+
+# Irrelevant after here
+```{r}
+# See how many gid cells have non-zero lootability_proportion
+library(dplyr)
+
+count_positive_gids <- world_wide%>%
+  filter(lootability_proportion > 0) %>%    # Keep only rows where lootable is positive
+  group_by(gid) %>%           # Group by 'gid'
+  summarise(has_positive = any(lootability_proportion > 0), .groups = 'drop') %>% # Check if there are any positive values
+  summarise(count = n())      # Count the number of gids with positive values
+
+print(count_positive_gids)
+
+```
+It has 1122 different gid cells with positive lootability_proportion. The denly set has 1302 with their naive measure of lootable.
+
+# Merging
+
+Now let's merge with the conflict dataset keeping all columns from both datasets.
+
+```{r}
+# Import conflict data
+conflict_data <- read_csv(here("Data", "xSub Conflict Data", "xSub_MELTT1km1dB_COL_priogrid_year.csv"))
+```
+```{r}
+# Rename the column in conflict data to match the admin1 column in resource data
+conflict_data <- conflict_data |> 
+  rename(gid = PRIO_GID) |> 
+  rename(year = YEAR) |> 
+  filter(year >= 1994 & year <= 2014)
+```
+
+Check whether they overlap and how many should be merged
+
+```{r}
+library(dplyr)
+
+# Assuming 'gid' columns are properly named and present in both datasets
+# If the column names are different, adjust them accordingly before this step
+
+# Extract gid values from both datasets
+gids_conflict <- unique(conflict_data$gid)
+gids_resource <- unique(world_wide$gid)
+
+# Find common gids (intersection)
+common_gids <- intersect(gids_conflict, gids_resource)
+
+# Find gids unique to conflict_data
+unique_conflict_gids <- setdiff(gids_conflict, gids_resource)
+
+# Find gids unique to world_wide
+unique_resource_gids <- setdiff(gids_resource, gids_conflict)
+
+# Print the results
+cat("Common GIDs:", length(common_gids), "\n")
+cat("GIDs unique to Conflict Data:", length(unique_conflict_gids), "\n")
+cat("GIDs unique to Resource Data:", length(unique_resource_gids), "\n")
+
+```
+
+```{r}
+merged_data <- full_join(conflict_data, world_wide, by = c("gid", "year"))
+```
+
+Check the merge was succesful
+
+```{r}
+world_gid_rows <- merged_data %>%
+  filter(gid %in% unique(world_wide$gid))  # Assuming 'gid' is the column name in both datasets
+
+# Display the rows
+print(world_gid_rows)
+```
+
+
+
+```{r}
+# Save data
+write_csv(merged_data, here("Data", "Merged Data", "merged_data_COL_prio_year.csv"))
+```
+
+
+Merge keeping only mining data:
+
+```{r}
+merged_data_left <- left_join(world_wide, conflict_data, by = c("gid", "year"))
+
+# Check the results to ensure the merge worked as expected
+head(merged_data_left)
+
+```
+
+
+# Trying some initial regressions
+```{r}
+library(tidyverse)
+
+# Load your dataset if not already loaded
+# df <- read.csv("your_data.csv")
+
+# Assuming 'df' is your dataframe, and it contains 'ACTION_ANY' and 'lootability_prop'
+# Fit a Poisson regression model
+poisson_model <- glm(ACTION_ANY ~ lootability_proportion, family = poisson(), data = merged_data)
+
+# Display the summary of the model to see results
+summary(poisson_model)
+
+```
+No 
+
+
+Check how many gids have of non-zero resource values for each resource.
+
+```{r}
+# Assuming 'merged_data' is your dataframe
+# Identify columns that match the pattern for resource capacities
+resource_columns <- names(merged_data)[grepl("^annuallocationcapacity_res_", names(merged_data))]
+
+# Initialize a data frame to store results
+results <- data.frame(resource = character(), unique_gids = integer())
+
+# Process each resource column to count non-zero, unique gid values
+for (resource in resource_columns) {
+  unique_gids_count <- merged_data %>%
+    filter(.data[[resource]] != 0) %>%  # Filter non-zero entries for the current resource
+    distinct(gid) %>%                  # Get distinct gids with non-zero entries
+    nrow()                             # Count unique gids
+
+  # Append the results for the current resource to the results data frame
+  results <- rbind(results, data.frame(resource = resource, unique_gids = unique_gids_count))
+}
+
+# Display the results for all resources
+print(results)
+```
+
+
+
+Save merged data as dta file
+Rename these variables to shorter names:
+annuallocationcapacity_res_sulfur`, `annuallocationcapacity_res_phosphate`,
+  `annuallocationcapacity_res_black carbon`, `annuallocationcapacity_res_iron and steel`,
+  `annuallocationcapacity_res_cement`, `annuallocationcapacity_res_kaolin`,
+  `annuallocationcapacity_res_platinum`, `annuallocationcapacity_res_emerald`,
+  `annuallocationcapacity_res_silver`, `annuallocationcapacity_res_copper`,
+  `annuallocationcapacity_res_natural gas`, `annuallocationcapacity_res_nickel`,
+  `annuallocationcapacity_res_nitrogen`, `comtrade_value_res_iron and steel`,
+  `multicolour_value_res_black carbon`, `multicolour_value_res_iron and steel`,
+  `multicolour_value_res_natural gas`, `world_val_nomc_res_iron and steel`, …,
+  `log_multicolour_val_res_iron and steel`, and `log_multicolour_val_res_natural gas
+
+```{r}
+# Extract the original variable names
+original_vars <- names(merged_data)
+
+# Function to clean and rename variable names
+clean_var_names <- function(var_name) {
+  # Pattern replacement for specific types of names
+  if (grepl("^resource_res_", var_name)) {
+    var_name <- sub("^resource_res_", "", var_name)
+  } else if (grepl("^annuallocationcapacity_res_", var_name)) {
+    var_name <- sub("^annuallocationcapacity_res_", "ann_cap_", var_name)
+  } else if (grepl("^comtrade_value_res_", var_name)) {
+    var_name <- sub("^comtrade_value_res_", "UN_val_", var_name)
+  } else if (grepl("^wb_value_res_", var_name)) {
+    var_name <- sub("^wb_value_res_", "wb_val_", var_name)
+  } else if (grepl("^export_price_first_mult1_res_", var_name)) {
+    var_name <- sub("^export_price_first_mult1_res_", "expp1_mult1_", var_name)
+  }
+  
+  # Replace spaces and special characters
+  var_name <- gsub(" ", "_", var_name)      # Replace spaces with '_'
+  var_name <- gsub(" and ", "_", var_name)  # Replace ' and ' with '_'
+  
+  # Ensure name does not start with a number or underscore
+  if (grepl("^[0-9]|^_", var_name)) {
+    var_name <- paste0("var_", var_name)
+  }
+  # Truncate names to 32 characters
+  substring(var_name, 1, 32)
+}
+
+# Apply the cleaning function to variable names
+names(merged_data) <- sapply(original_vars, clean_var_names)
+
+
+
+```
+
+
+```{r}
+# Assume 'merged_data' is your main dataframe and it includes 'year' and 'gid' columns
+# Filter data for the year 1994 and select the 'ann_cap_oil' column
+oil_1994_data <- merged_data[merged_data$year == 1994, c("gid", "ann_cap_oil")]
+
+# Remove any duplicates if 'gid' isn't unique for the year 1994
+oil_1994_data <- oil_1994_data[!duplicated(oil_1994_data$gid), ]
+
+# Merge this back to the original dataframe on 'gid' to create the new variable
+merged_data <- merge(merged_data, oil_1994_data, by = "gid", all.x = TRUE, suffixes = c("", "_1994"))
+
+# Rename the merged 'ann_cap_oil' column to 'oil_prod_1994'
+names(merged_data)[names(merged_data) == "ann_cap_oil_1994"] <- "oil_prod_1994"
+
+# Check the first few rows to confirm the new column has been added
+head(merged_data)
+
+```
+```{r}
+# Ensure all variables are of type double
+merged_data[numeric_vars] <- lapply(merged_data[numeric_vars], function(x) as.numeric(as.character(x)))
+
+# Recheck numeric variables in case of previous type issues
+numeric_vars <- sapply(merged_data, is.numeric)
+
+# Identify variables that match the pattern 'expp1_mult1_*'
+price_vars <- grep("expp1_mult1_", names(merged_data), value = TRUE)
+
+# Filter price_vars to ensure they are also numeric after conversions
+price_vars <- price_vars[price_vars %in% names(merged_data[numeric_vars])]
+
+# Apply log-plus-one transformation to these variables
+for (var in price_vars) {
+  # Create new variable name for the log-transformed variable
+  new_var_name <- paste("log", var, sep="_")
+  
+  # Check if the variable is indeed numeric; convert if not already (as a precaution)
+  if (!is.numeric(merged_data[[var]])) {
+    merged_data[[var]] <- as.numeric(merged_data[[var]])
+  }
+
+  # Calculate the log of the variable plus one, ensuring NA values remain as NA
+  merged_data[[new_var_name]] <- ifelse(is.na(merged_data[[var]]), 
+                                        NA, 
+                                        log(merged_data[[var]] + 1))
+}
+
+# Check and handle any further issues if this still causes errors
+
+```
+
+
+```{r}
+# Save the merged data to a Stata .dta file
+library(haven)
+write_dta(merged_data, here("Data", "Merged Data", "merged_data_COL_prio_year.dta"))
+```
+
+
+```{r}
+print(names(merged_data))
+```
+
+```{r}
+rm(list = ls())
+library(tidyr)
+library(tidyverse)
+library(here)
+library(haven)
+world_wide <- read_csv(here("Data", "GRD Dataset", "world_wide_data.csv"))
+```
+# Mine Ownership Score
+```{r}
+# check if there are any variables with the name mineownership in it
+mineownership_vars <- grep("mineownership", names(world_wide), value = TRUE)
+
+# Print head for these columns
+owner <- world_wide %>%
+  select(all_of(mineownership_vars))
+
+  
+```
+
+```{r}
+# IMport grd
+grd <- read_dta(here("Data", "GRD Dataset", "dfhsw_GRD_public_v1.dta"))
+```
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+# Count occurrences of each unique value in the mineownership column
+mineownership_counts <- grd %>%
+  count(mineownership, sort = TRUE) %>%
+  rename(`Mine Ownership` = mineownership, `Occurrences` = n)
+
+# Print distinct values (for verification, can be removed in final script)
+print(mineown_distinct)
+
+# Create a kable table with caption and label
+kable_table <- mineownership_counts %>%
+  kable("latex", booktabs = TRUE, caption = "Occurrences of Each Mine Ownership Type", label = "tab:mineownership_counts") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+
+# Export the table to a .tex file
+output_path <- here("mineownership_counts_table.tex")
+writeLines(kable_table, output_path)
+```
+
+
+```{r}
+# Define the ownership score mapping based on the given entries and classification
+ownership_scores <- c(
+  "industrial" = 3,                    # Domestic Private
+  "government" = 4,                    # Public
+  "n/a" = 0,                           # No information
+  "government and industrial" = 3.5,   # Mixed categories (shared ownership)
+  "artisanal" = 3,                     # Domestic Private
+  "shared" = 2.5,                      # Mixed categories (shared ownership)
+  "foreign government" = 3.5,          # Foreign
+  "cooperative and industrial" = 2.5,  # Mixed categories (shared ownership)
+  "artisanal, military, rebel" = 1.5,  # Rebel/Military involvement
+  "rebel" = 1.5,                       # Rebel/Military involvement
+  "cooperative" = 3                    # Domestic Private
+)
+
+# Function to map ownership type to score
+get_ownership_score <- function(ownership) {
+  score <- ownership_scores[ownership]
+  if (is.null(score)) {
+    return(NA)  # Handle any unexpected values
+  } else {
+    return(score)
+  }
+}
+
+# Apply the function to create the ownership score column
+grd <- grd %>%
+  mutate(ownership_score = sapply(mineownership, get_ownership_score))
+
+# Calculate the average ownership score for each PRIO grid cell and year
+aggregate_scores <- grd %>%
+  group_by(gid, year) %>%
+  summarise(avg_ownership_score = mean(ownership_score, na.rm = TRUE), .groups = 'drop')
+
+# Check the results
+print(head(aggregate_scores))
+```
+
