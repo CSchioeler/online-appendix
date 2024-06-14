@@ -1,3 +1,3 @@
 # online-appendix
 
-This repository will be populated with the RMarkdown and Stata do-files that I used for all my work.
+This repository contains the RMarkdown and Stata .do files used for data cleaning, analysis and visualisation for my paper. 
